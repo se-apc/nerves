@@ -1,4 +1,4 @@
-defmodule Nerves.Package.Squashfs do
+defmodule Nerves.Utils.Squashfs do
   use GenServer
 
   require Logger
@@ -25,6 +25,18 @@ defmodule Nerves.Package.Squashfs do
   def stop(pid) do
     GenServer.call(pid, :stop)
     GenServer.stop(pid)
+  end
+
+  def mksquashfs(source, dest) when is_binary(source) do
+    mksquashfs([source], dest)
+  end
+  def mksquashfs(sources, dest) do
+    opts = ["-noappend", "-no-recovery", "-no-progress"]
+
+    case System.cmd("mksquashfs", sources ++ [dest] ++ opts) do
+      {_, 0} -> {:ok, dest}
+      {error, _} -> {:error, error}
+    end
   end
 
   def pseudofile(pid) do

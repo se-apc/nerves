@@ -34,6 +34,13 @@ defmodule NervesTest.Case do
     :ok
   end
 
+  def in_tmp(which, function) do
+    path = tmp_path(which)
+    File.rm_rf! path
+    File.mkdir_p! path
+    File.cd! path, function
+  end
+
   defmacro in_fixture(which, block) do
       module   = inspect __CALLER__.module
       function = Atom.to_string elem(__CALLER__.function, 0)
