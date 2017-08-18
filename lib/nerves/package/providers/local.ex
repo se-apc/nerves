@@ -16,7 +16,10 @@ defmodule Nerves.Package.Providers.Local do
   @spec artifact(Nerves.Package.t, Nerves.Package.t, term) :: :ok
   def artifact(pkg, toolchain, opts) do
     {_, type} = :os.type
-    build(type, pkg, toolchain, opts)
+    case build(type, pkg, toolchain, opts) do
+      :ok -> :ok
+      {:error, error} -> Mix.raise error
+    end
   end
 
   def clean(pkg) do
@@ -62,7 +65,11 @@ defmodule Nerves.Package.Providers.Local do
 
     case shell("make", [], [cd: dest, stream: stream]) do
       {_, 0} -> :ok
-      {error, _} -> {:error, error}
+      {error, _} ->
+        {:error, """
+        Nerves Docker provider encountered an error.
+        See build.log for more details.
+        """}
     end
   end
 
