@@ -7,8 +7,8 @@ defmodule Nerves.Mixfile do
       name: "Nerves",
       source_url: "https://github.com/nerves-project/nerves",
       homepage_url: "http://nerves-project.org/",
-      version: "1.3.3",
-      elixir: "~> 1.6.0 or ~> 1.7.3",
+      version: "1.5.4",
+      elixir: "~> 1.6.0 or ~> 1.7.3 or ~> 1.8",
       elixirc_paths: elixirc_paths(Mix.env()),
       deps: deps(),
       description: description(),
@@ -28,13 +28,13 @@ defmodule Nerves.Mixfile do
 
   defp deps do
     [
-      {:distillery, "2.0.10"},
+      {:distillery, "~> 2.1", optional: true, runtime: false},
       {:jason, "~> 1.0", optional: true},
       {:ex_doc, "~> 0.19", only: [:test, :dev], runtime: false},
       {:dialyxir, "~> 1.0.0-rc.3", only: [:test, :dev], runtime: false},
       {:nerves_bootstrap, "~> 1.0", only: [:test, :dev]},
       {:plug, "~> 1.4", only: :test},
-      {:cowboy, "~> 1.1", only: :test}
+      {:plug_cowboy, "~> 1.0", only: :test}
     ]
   end
 
@@ -51,7 +51,8 @@ defmodule Nerves.Mixfile do
         "docs/User Interfaces.md",
         "docs/Advanced Configuration.md",
         "docs/Updating Projects.md",
-        "docs/Internals.md"
+        "docs/Internals.md",
+        "docs/Customizing Systems.md"
       ]
     ]
   end

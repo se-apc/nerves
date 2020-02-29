@@ -6,10 +6,12 @@ bugs on GitHub.
 
 Contents:
 
-* [Updating from v0.8 to v0.9](#updating-from-v08-to-v09)
-* [Updating from v0.9 to v1.0.0-rc.0](#updating-from-v09-to-v100-rc0)
-* [Updating from v1.0.0-rc.0 to v1.0.0-rc.2](#updating-from-v100-rc0-to-v100-rc2)
-* [Updating from ~> v1.0 to v1.3](#updating-from--v10-to-v130)
+* [Updating from v0.8 to v0.9](#updating-from-v0-8-to-v0-9)
+* [Updating from v0.9 to v1.0.0-rc.0](#updating-from-v0-9-to-v1-0-0-rc-0)
+* [Updating from v1.0.0-rc.0 to v1.0.0-rc.2](#updating-from-v1-0-0-rc-0-to-v1-0-0-rc-2)
+* [Updating from v1.0 to v1.3](#updating-from-v1-0-to-v1-3)
+* [Updating from v1.3 to v1.4](#updating-from-v1-3-to-v1-4)
+* [Updating from v1.4 to v1.5](#updating-from-v1-4-to-v1-5)
 
 ## Updating from v0.8 to v0.9
 
@@ -37,7 +39,7 @@ mix archive.install hex nerves_bootstrap
 
 ### Update mix.exs aliases (old)
 
-IMPORTANT: If you're upgrading to Nerves v1.0, this step has been superceded.
+IMPORTANT: If you're upgrading to Nerves v1.0, this step has been superseded.
 
 Nerves requires that you add aliases to your project's `mix.exs` to pull in the
 firmware creation and compilation logic. Previously, you needed to know
@@ -123,9 +125,16 @@ Some Nerves dependencies reference a large precompiled version of their build
 products to significantly reduce compilation time. These are called artifacts
 and due to their size, they cannot be hosted on hex.pm. Nerves downloads these
 automatically as part of the dependency resolution process. It is critical that
-they match the corresponding source code and the previous method of checking version numbers was insufficient. Nerves v0.9.0 now uses a checksum of the projects source files. This works for all projects no matter what version control system they use or how they are stored.
+they match the corresponding source code and the previous method of checking
+version numbers was insufficient. Nerves v0.9.0 now uses a checksum of the
+projects source files. This works for all projects no matter what version
+control system they use or how they are stored.
 
-If you have created a custom Nerves system or toolchain, you will need to update your project's `mix.exs` to ensure that the checksum covers the right files. This is done using the `:checksum` key on the `nerves_package`. Since the files that you checksum are likely identical to those published on hex.pm, we recommend creating a `package_files/0` function that's used by both.
+If you have created a custom Nerves system or toolchain, you will need to update
+your project's `mix.exs` to ensure that the checksum covers the right files.
+This is done using the `:checksum` key on the `nerves_package`. Since the files
+that you checksum are likely identical to those published on hex.pm, we
+recommend creating a `package_files/0` function that's used by both.
 
 Here's an example from `nerves-project/nerves_system_rpi0`:
 
@@ -139,7 +148,6 @@ Here's an example from `nerves-project/nerves_system_rpi0`:
 
   defp package do
     [
-      maintainers: ["Timothy Mecklem", "Frank Hunleth"],
       files: package_files(),
       licenses: ["Apache 2.0"],
       links: %{"Github" => "https://github.com/nerves-project/#{@app}"}
@@ -173,7 +181,7 @@ this easier. Please update your CI scripts or build instructions to use this new
 method.
 
 Nerves makes it easier to predigest artifacts for systems and toolchains
-with the added mix task `mix nerves.artifact <app_name>` Ommitting `<app_name>`
+with the added mix task `mix nerves.artifact <app_name>`. Omitting `<app_name>`
 will default to the app name of the parent mix project. This is useful if
 you are calling `mix nerves.artifact` from within a custom system or toolchain
 project.
@@ -320,7 +328,7 @@ For example:
   end
 ```
 
-## Updating from ~> v1.0 to v1.3.0
+## Updating from v1.0 to v1.3
 
 ### Modify the release config
 
@@ -331,7 +339,7 @@ of the file that defines your application.
 
 Change this:
 
-```
+```elixir
 release :my_app do
   set version: current_version(:my_app)
   plugin Shoehorn
@@ -347,7 +355,7 @@ end
 
 To this:
 
-```
+```elixir
 release :my_app do
   set version: current_version(:my_app)
   plugin Shoehorn
@@ -358,3 +366,372 @@ end
 ### Update shoehorn dependency
 
 You will need to update your version of shoehorn to `{:shoehorn, "~> 0.4"}`.
+
+## Updating from v1.3 to v1.4
+
+Version v1.4.0 adds support for Elixir 1.8's new built-in support for mix
+targets. In Nerves, the `MIX_TARGET` was used to select the appropriate set of
+dependencies for a device. This lets you switch between building for different
+boards and your host. Elixir 1.8 pulls this support into `mix` and lets you
+annotate dependencies for which targets they should be used.
+
+### Update your mix.exs file
+
+The `@target` is no longer used. Delete it and then add `@all_targets` like this:
+
+```elixir
+@target System.get_env("MIX_TARGET") || "host"
+```
+
+```elixir
+@all_targets [:rpi0, :rpi3, :rpi]
+```
+
+The `@all_targets` alias will be convenient when updating the dependencies in
+your `mix.exs`. Set it to the target names that you use (in atom form). Like the
+previous use of `MIX_TARGET`, it didn't matter what you called the targets. It
+only mattered that you were consistent.
+
+The `:host` target refers to compilation for your computer. It's the only
+special target and is used for running non-hardware-specific unit tests.
+
+Next, remove the following lines from the `project/0` callback (yay Elixir 1.8):
+
+```elixir
+  target: @target
+  deps_path: "deps/#{@target}"
+  build_path: "_build/#{@target}"
+  lockfile: "mix.lock.#{@target}"
+```
+
+Change `build_embedded` from
+
+```elixir
+build_embedded: @target != "host"
+```
+
+to
+
+```elixir
+build_embedded: Mix.target() != :host,
+```
+
+The next step is to consolidate your dependencies to one `deps/0` function.
+Nerves previously grouped dependencies and used pattern matches to pick the
+right ones for your device. Elixir 1.8 makes this unnecessary.
+
+Now Elixir can fetch and lock your dependencies for all targets. Previously, if
+you'd switch targets, your dependencies might change versions. No more!
+
+Elixir 1.8 adds the `:targets` option on dependencies. Here's an example:
+
+Before:
+
+```elixir
+  # Run "mix help deps" to learn about dependencies.
+  # Dependencies for all targets
+  defp deps do
+    [
+      {:nerves, "~> 1.3", runtime: false},
+      {:shoehorn, "~> 0.4"},
+      {:ring_logger, "~> 0.6"},
+      {:toolshed, "~> 0.2"}
+    ] ++ deps(@target)
+  end
+
+  # Specify target specific dependencies
+  defp deps("host"), do: []
+
+  # Dependencies for all targets except :host
+  defp deps(target) do
+    [
+      {:nerves_runtime, "~> 0.6"},
+      {:nerves_init_gadget, "~> 0.4"}
+    ] ++ system(target)
+  end
+
+  # Dependencies for specific targets
+  defp system("rpi"), do: [{:nerves_system_rpi, "~> 1.5", runtime: false}]
+  defp system("rpi0"), do: [{:nerves_system_rpi0, "~> 1.5", runtime: false}]
+  defp system("rpi2"), do: [{:nerves_system_rpi2, "~> 1.5", runtime: false}]
+  defp system("rpi3"), do: [{:nerves_system_rpi3, "~> 1.5", runtime: false}]
+  defp system("bbb"), do: [{:nerves_system_bbb, "~> 2.0", runtime: false}]
+  defp system("x86_64"), do: [{:nerves_system_x86_64, "~> 1.5", runtime: false}]
+  defp system(target), do: Mix.raise("Unknown MIX_TARGET: #{target}")
+```
+
+After:
+
+```elixir
+  # Run "mix help deps" to learn about dependencies.
+  defp deps do
+    [
+      # Dependencies for all targets
+      {:nerves, "~> 1.4", runtime: false},
+      {:shoehorn, "~> 0.4"},
+      {:ring_logger, "~> 0.6"},
+      {:toolshed, "~> 0.2"},
+
+      # Dependencies for all targets except :host
+      {:nerves_runtime, "~> 0.6", targets: @all_targets},
+
+      # Dependencies for specific targets
+      {:nerves_system_rpi, "~> 1.5", runtime: false, targets: :rpi},
+      {:nerves_system_rpi0, "~> 1.5", runtime: false, targets: :rpi0},
+      {:nerves_system_rpi2, "~> 1.5", runtime: false, targets: :rpi2},
+      {:nerves_system_rpi3, "~> 1.5", runtime: false, targets: :rpi3},
+      {:nerves_system_rpi3a, "~> 1.5", runtime: false, targets: :rpi3a},
+      {:nerves_system_bbb, "~> 2.0", runtime: false, targets: :bbb},
+      {:nerves_system_x86_64, "~> 1.5", runtime: false, targets: :x86_64}
+    ]
+  end
+```
+
+### Update config.exs
+
+Accessing the `MIX_TARGET` is done differently now. References in your
+`config.exs` to `Mix.Project.config[:target]` need to be `Mix.target()` now. For
+example, change this:
+
+```elixir
+import_config "#{Mix.Project.config[:target]}.exs
+```
+
+to:
+
+```elixir
+import_config "#{Mix.target()}.exs"
+```
+
+### Update application.ex
+
+Search your Elixir code for references to `Mix.Project.config()[:target]`. These
+need to change as well. It's not uncommon to have these in your `application.ex`
+to decide what to start in your main supervision tree. For example, change this:
+
+```elixir
+@target Mix.Project.config()[:target]
+```
+
+to:
+
+```elixir
+@target Mix.target()
+```
+
+## Updating from v1.4 to v1.5
+
+Nerves v1.5 adds support for [Elixir 1.9+
+releases](https://elixir-lang.org/blog/2019/06/24/elixir-v1-9-0-released/).
+Previous versions of Nerves only supported
+[Distillery](https://github.com/bitwalker/distillery) for OTP release creation.
+Nerves v1.5 still supports Distillery, but it is no longer included by default.
+Nerves v1.5 also still supports previous Elixir versions, so there is no need to
+update to Elixir 1.9.
+
+The most important part of the Nerves v1.5 upgrade process is to make sure that
+Nerves knows whether you want to use Elixir 1.9 releases or Distillery. Please
+find the subsections below that correspond to your environment.
+
+### Update nerves_bootstrap
+
+Nerves now requires `nerves_bootstrap` 1.5.1 and later. Assuming that you
+already have it installed, run:
+
+```bash
+mix local.nerves
+```
+
+`nerves_bootstrap` v1.6.0 and later generate Elixir 1.9-based projects. This
+functionality does not affect existing projects if you are not updating your
+Elixir version. However, if you cannot update Elixir and still want to create
+new projects, force the `nerves_bootstrap` installation to `~> 1.5.0`:
+
+```bash
+mix archive.install hex nerves_bootstrap "~> 1.5.0"
+```
+
+### Update Elixir < 1.9.0 projects
+
+If you're not updating to Elixir 1.9, then Distillery is your only option for
+OTP release creation and must be explicitly specified. The following steps will
+ensure that your project has the appropriate updates:
+
+In your `mix.exs`, add distillery as a dependency of your project:
+
+```elixir
+{:distillery, "~> 2.1"}
+```
+
+Distillery 2.1 moved code out of the `Mix.Releases` namespace. This requires a
+change to your project's `rel/config.exs`. Open `rel/config.exs` and look for
+the following line:
+
+```elixir
+use Mix.Releases.Config
+```
+
+Change it to:
+
+```elixir
+use Distillery.Releases.Config
+```
+
+Finally, check that the `:shoehorn` dependency is `~> 0.6`:
+
+```elixir
+{:shoehorn, "~> 0.6"}
+```
+
+Run `mix deps.get` and your project should continue to work.
+
+At this point, consider updating your Nerves system to the latest to pull in
+Linux, Erlang, and other C library and application updates.
+
+### Update Elixir ~> 1.9
+
+First verify that you have `nerves_bootstrap` 1.6.0 or later installed:
+
+```bash
+$ mix archive
+* hex-0.20.1
+* nerves_bootstrap-1.6.0
+```
+
+The following instructions are for updating your project files to use Elixir 1.9
+releases. If you must use Distillery, see the instructions above for Elixir `<
+1.9.0` projects.
+
+#### mix.exs updates
+
+In your project's `mix.exs`, make the following edits:
+
+1. Move the application name to a module attribute:
+
+    ```elixir
+    @app :my_app
+
+    def project do
+      [
+        app: @app
+        # ...
+      ]
+    end
+    ```
+
+2. Add release config to the project config:
+
+    ```elixir
+
+    def project do
+      [
+        # ...
+        releases: [{@app, release()}]
+      ]
+    end
+
+    def release do
+      [
+        overwrite: true,
+        cookie: "#{@app}_cookie",
+        include_erts: &Nerves.Release.erts/0,
+        steps: [&Nerves.Release.init/1, :assemble],
+        strip_beams: Mix.env() == :prod
+      ]
+    end
+    ```
+
+3. Update the nerves and shoehorn dependencies
+
+    ```elixir
+    def deps
+      [
+        {:nerves, "~> 1.5.0", runtime: false},
+        {:shoehorn, "~> 0.6"},
+        # ...
+      ]
+    end
+    ```
+
+4. Update the required archives:
+
+    ```elixir
+    def project do
+      [
+        # ...
+        archives: [nerves_bootstrap: "~> 1.6"],
+      ]
+    end
+    ```
+
+5. Add preferred cli target to the project config:
+
+    ```elixir
+    def project do
+      [
+        # ...
+        preferred_cli_target: [run: :host, test: :host]
+      ]
+    end
+    ```
+
+#### vm.args updates
+
+Next, rename `rel/vm.args` to `rel/vm.args.eex`
+
+Then update the line that sets the cookie to
+
+```elixir
+-setcookie <%= @release.options[:cookie] %>
+```
+
+#### Erase old Distillery files
+
+Since Distillery is no longer being used, erase any Distillery configuration
+files that are still around. For most Nerves users, run the following:
+
+```bash
+rm rel/config.exs
+rm rel/plugins/.gitignore
+```
+
+#### Nerves system update
+
+Elixir 1.9+ releases are only compatible with systems that contain [`erlinit ~>
+1.5`](https://github.com/nerves-project/erlinit/releases/tag/v1.5.0).
+
+If you are using an official Nerves system, then make sure that you are using
+one of these versions:
+
+```text
+nerves_system_rpi:    ~> 1.8
+nerves_system_rpi2:   ~> 1.8
+nerves_system_rpi3:   ~> 1.8
+nerves_system_rpi3a:  ~> 1.8
+nerves_system_rpi0:   ~> 1.8
+nerves_system_x86_64: ~> 1.8
+nerves_system_bbb:    ~> 2.3
+```
+
+If you are using a custom system, you will need to update `nerves_system_br` to
+ a version that is >= `1.8.1`.
+
+#### config.exs updates
+
+Nerves has been improving support for "host" builds of firmware projects. This
+makes it possible to unit test platform-independent code on your build machine.
+To take advantage of this, it's important to separate out the target-dependent
+sections of the `config.exs`. Here's one way of doing this:
+
+1. Create a new file `config/target.exs`
+
+2. Move configs for applications that are only available on the target to the
+`target.exs` file.
+
+3. Update `config.exs` to import `target.exs` if the target is not `host`.
+
+    ```elixir
+    if Mix.target() != :host do
+      import_config "target.exs"
+    end
+    ```

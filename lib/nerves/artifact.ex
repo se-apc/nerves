@@ -6,7 +6,6 @@ defmodule Nerves.Artifact do
   """
   alias Nerves.Artifact.{Cache, BuildRunners, Resolvers}
 
-  @base_dir Path.expand("~/.nerves/artifacts")
   @checksum_short 7
 
   @doc """
@@ -143,17 +142,14 @@ defmodule Nerves.Artifact do
   """
   @spec base_dir() :: String.t()
   def base_dir() do
-    System.get_env("NERVES_ARTIFACTS_DIR") || @base_dir
+    System.get_env("NERVES_ARTIFACTS_DIR") || Path.join(Nerves.Env.data_dir(), "artifacts")
   end
 
   @doc """
   Get the path to where the artifact is built
   """
   def build_path(pkg) do
-    pkg.path
-    |> Path.join(".nerves")
-    |> Path.join("artifacts")
-    |> Path.join(name(pkg))
+    Path.join([pkg.path, ".nerves", "artifacts", name(pkg)])
   end
 
   @doc """
@@ -249,15 +245,24 @@ defmodule Nerves.Artifact do
 
   Artifact sites can pass options as a third parameter for adding headers
   or query string parameters. For example, if you are trying to resolve
-  artifacts hosted using `:github_releases` in a private repo,
-  you can pass a personal access token into the sites helper.
+  artifacts hosted in a private Github repo, use `:github_api` and
+  pass a user, tag, and personal access token into the sites helper:
 
-    {:github_releases, "my-organization/my_repository", query_params: %{"access_token" => System.get_env("GITHUB_ACCESS_TOKEN")}}
+  ```elixir
+  {:github_api, "owner/repo", username: "skroob", token: "1234567", tag: "v0.1.0"}
+  ```
+
+  Or pass query parameters for the URL:
+
+  ```elixir
+  {:prefix, "https://my-organization.com", query_params: %{"id" => "1234567", "token" => "abcd"}}
+  ```
 
   You can also use this to add an authorization header for files behind basic auth.
 
-    {:prefix, "http://my-organization.com/", headers: [{"Authorization", "Basic " <> System.get_env("BASIC_AUTH")}}]}
-
+  ```elixir
+  {:prefix, "http://my-organization.com/", headers: [{"Authorization", "Basic " <> System.get_env("BASIC_AUTH")}}]}
+  ```
   """
   def expand_sites(pkg) do
     case pkg.config[:artifact_url] do
@@ -321,31 +326,26 @@ defmodule Nerves.Artifact do
   def ext(_), do: ".tar.gz"
 
   def build_runner(config) do
-    case config[:nerves_package][:build_runner] do
-      nil ->
-        build_runner_type(config[:nerves_package][:type])
+    opts = config[:nerves_package][:build_runner_opts] || []
 
-      build_runner ->
-        build_runner_opts = config[:nerves_package][:build_runner_opts] || []
-        {build_runner, build_runner_opts}
-    end
+    mod =
+      config[:nerves_package][:build_runner] || build_runner_type(config[:nerves_package][:type])
+
+    {mod, opts}
   end
 
   defp build_runner_type(:system_platform), do: nil
   defp build_runner_type(:toolchain_platform), do: nil
-  defp build_runner_type(:toolchain), do: {BuildRunners.Local, []}
+  defp build_runner_type(:toolchain), do: BuildRunners.Local
 
   defp build_runner_type(:system) do
-    mod =
-      case :os.type() do
-        {_, :linux} -> BuildRunners.Local
-        _ -> BuildRunners.Docker
-      end
-
-    {mod, []}
+    case :os.type() do
+      {_, :linux} -> BuildRunners.Local
+      _ -> BuildRunners.Docker
+    end
   end
 
-  defp build_runner_type(_), do: {BuildRunners.Local, []}
+  defp build_runner_type(_), do: BuildRunners.Local
 
   defp expand_paths(paths, dir) do
     paths
