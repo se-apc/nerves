@@ -19,7 +19,7 @@ defmodule Nerves.Env do
   def start do
     Nerves.system_requirements()
     set_source_date_epoch()
-    Agent.start_link(fn -> load_packages() end, name: __MODULE__)
+    Agent.start_link(fn -> load_packages() end, name: __MODULE__, timeout: 50000)
   end
 
   @doc """
