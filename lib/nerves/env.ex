@@ -128,9 +128,10 @@ defmodule Nerves.Env do
     IO.puts "+++++++ path afta = #{inspect path}"
 
     if nerves_package?({app, path}) do
+      IO.puts "+++++++ nerves_package? returnt true..."
       packages = Agent.get(__MODULE__, & &1)
 
-    IO.puts "+++++++ packages = #{inspect packages}"
+      IO.puts "+++++++ packages = #{inspect packages}"
 
       case Enum.find(packages, &(&1.app == app)) do
         nil ->
@@ -486,7 +487,7 @@ defmodule Nerves.Env do
         Package.config(app, path)
         |> Keyword.get(:nerves_package)
 
-      IO.puts "+++ package_config = #{inspect package_config} returning false"
+      IO.puts "+++ package_config = #{inspect package_config} returning ${inspect package_config != nil}"
 
       package_config != nil
     rescue
