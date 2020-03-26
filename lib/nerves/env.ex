@@ -129,7 +129,7 @@ defmodule Nerves.Env do
 
     if nerves_package?({app, path}) do
       IO.puts "+++++++ nerves_package? returnt true..."
-      packages = Agent.get(__MODULE__, & &1)
+      packages = Agent.get(__MODULE__, & &1, 50000)
 
       IO.puts "+++++++ packages = #{inspect packages}"
 
