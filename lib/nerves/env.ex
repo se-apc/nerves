@@ -446,13 +446,22 @@ defmodule Nerves.Env do
     end
   end
 
+  defp debug_load_packages(retval, message) do
+     IO.puts "+++ #{__MODULE__}: #{message}"
+     retval
+  end
   @doc false
   defp load_packages do
     Mix.Project.deps_paths()
+      |> debug_load_packages("Mix.project.deps_paths()")
     |> Map.put(Mix.Project.config()[:app], File.cwd!())
+      |> debug_load_packages("Map.put")
     |> Enum.filter(&nerves_package?/1)
+      |> debug_load_packages("Enum.filter()")
     |> Enum.map(&Package.load_config/1)
+      |> debug_load_packages("Enum.map Package.load_config()")
     |> validate_packages
+      |> debug_load_packages("validate_packages")
   end
 
   @doc false
