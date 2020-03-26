@@ -150,6 +150,7 @@ defmodule Nerves.Env do
           {:ok, package}
       end
     else
+      IO.puts "+++++++++++ Nerves package config for #{inspect(app)} was not found at #{path}"
       {:error, "Nerves package config for #{inspect(app)} was not found at #{path}"}
     end
   end
