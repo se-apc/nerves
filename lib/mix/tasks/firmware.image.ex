@@ -1,6 +1,7 @@
 defmodule Mix.Tasks.Firmware.Image do
   use Mix.Task
   import Mix.Nerves.Utils
+  alias Mix.Nerves.Preflight
 
   @shortdoc "Create a firmware image file"
 
@@ -15,7 +16,7 @@ defmodule Mix.Tasks.Firmware.Image do
   If not supplied, the output image file will be based off the OTP application
   name.
 
-  ## Example
+  ## Examples
 
   ```
   # Create the image file
@@ -25,21 +26,26 @@ defmodule Mix.Tasks.Firmware.Image do
   dd if=my_image.img of=/dev/sdc bs=1M
   ```
   """
+
+  @impl true
   def run([file]) do
-    preflight()
+    Preflight.check!()
     debug_info("Nerves Firmware Image")
+
+    # Call "mix firmware" to ensure that the firmware bundle is up-to-date
+    Mix.Task.run("firmware", [])
 
     config = Mix.Project.config()
     otp_app = config[:app]
-    target = config[:target]
+    target = mix_target()
 
     images_path =
       (config[:images_path] || Path.join([Mix.Project.build_path(), "nerves", "images"]))
       |> Path.expand()
 
-    check_nerves_system_is_set!()
+    _ = check_nerves_system_is_set!()
 
-    check_nerves_toolchain_is_set!()
+    _ = check_nerves_toolchain_is_set!()
 
     fw = "#{images_path}/#{otp_app}.fw"
 

@@ -17,6 +17,8 @@ defmodule Nerves.Env do
   """
   @spec start() :: Agent.on_start()
   def start do
+    Nerves.system_requirements()
+    set_source_date_epoch()
     Agent.start_link(fn -> load_packages() end, name: __MODULE__)
   end
 
@@ -25,7 +27,11 @@ defmodule Nerves.Env do
   """
   @spec stop() :: :ok
   def stop do
-    Agent.stop(__MODULE__)
+    if Process.whereis(__MODULE__) do
+      Agent.stop(__MODULE__)
+    else
+      :not_running
+    end
   end
 
   @doc """
@@ -53,15 +59,34 @@ defmodule Nerves.Env do
   end
 
   @doc """
-  The download location for artifacts.
+  Check if the Nerves.Env is loaded
+  """
+  @spec loaded?() :: boolean
+  def loaded?() do
+    System.get_env("NERVES_ENV_BOOTSTRAP") != nil
+  end
+
+  @doc """
+  The download location for artifact downloads.
 
   Placing an artifact tar in this location will bypass the need for it to
   be downloaded.
   """
   @spec download_dir() :: path :: String.t()
   def download_dir do
-    (System.get_env("NERVES_DL_DIR") || "~/.nerves/dl")
+    (System.get_env("NERVES_DL_DIR") || Path.join(data_dir(), "dl"))
     |> Path.expand()
+  end
+
+  @doc """
+  The location for storing global nerves data
+  """
+  @spec data_dir() :: path :: String.t()
+  def data_dir do
+    case System.get_env("XDG_DATA_HOME") do
+      directory when is_binary(directory) -> Path.join(directory, "nerves")
+      nil -> Path.expand("~/.nerves")
+    end
   end
 
   @doc """
@@ -70,7 +95,7 @@ defmodule Nerves.Env do
   This allows you to start in one target, like host, but then
   switch to a different target.
   """
-  @spec change_target(String.t()) :: :no_return
+  @spec change_target(String.t()) :: :ok
   def change_target(target) do
     System.put_env("MIX_TARGET", target)
     :init.restart()
@@ -80,7 +105,7 @@ defmodule Nerves.Env do
   @doc """
   Cleans the artifacts for the package build_runners of all specified packages.
   """
-  @spec clean([Nerves.Package.t()]) :: :ok | {:error, term}
+  @spec clean([Nerves.Package.t()]) :: :ok
   def clean(pkgs) do
     Enum.each(pkgs, &Artifact.clean/1)
   end
@@ -161,15 +186,11 @@ defmodule Nerves.Env do
     arch = List.first(arch)
 
     case arch do
-      <<"win", _tail::binary>> ->
-        "x86_64"
-
-      arch ->
-        if String.contains?(arch, "arm") do
-          "arm"
-        else
-          "x86_64"
-        end
+      <<"win", _rest::binary>> -> "x86_64"
+      <<"arm", _rest::binary>> -> "arm"
+      "aarch64" -> "aarch64"
+      "x86_64" -> "x86_64"
+      _anything_else -> "x86_64"
     end
   end
 
@@ -239,10 +260,34 @@ defmodule Nerves.Env do
   @doc """
   Lists packages by package type.
   """
-  @spec packages_by_type(type :: String.t()) :: [Nerves.Package.t()]
+  @spec packages_by_type(type :: atom()) :: [Nerves.Package.t()]
   def packages_by_type(type, packages \\ nil) do
     (packages || packages())
     |> Enum.filter(&(&1.type === type))
+  end
+
+  @doc """
+  The path to where firmware build files are stored
+  This can be overridden in a Mix project by setting the `:images_path` key.
+
+    images_path: "/some/other/location"
+
+  Defaults to (build_path)/nerves/images
+  """
+  @spec images_path(keyword) :: String.t()
+  def images_path(config \\ mix_config()) do
+    (config[:images_path] || Path.join([Mix.Project.build_path(), "nerves", "images"]))
+    |> Path.expand()
+  end
+
+  @doc """
+  The path to the firmware file
+  """
+  @spec firmware_path(keyword) :: String.t()
+  def firmware_path(config \\ mix_config()) do
+    config
+    |> images_path()
+    |> Path.join("#{config[:app]}.fw")
   end
 
   @doc """
@@ -260,7 +305,7 @@ defmodule Nerves.Env do
   @doc """
   Helper function for returning the system_platform type package
   """
-  @spec system_platform() :: Nerves.Package.t()
+  @spec system_platform() :: module()
   def system_platform do
     system().platform
   end
@@ -311,6 +356,9 @@ defmodule Nerves.Env do
           Mix.shell().error("""
           #{k} is set to a path which does not exist:
           #{v}
+
+          Try running `mix deps.get` to see if this resolves the issue by
+          downloading the missing artifact.
           """)
 
           exit({:shutdown, 1})
@@ -331,7 +379,7 @@ defmodule Nerves.Env do
       platform.bootstrap(pkg)
     end
 
-    # Bootstrap all other packahes who define a platform
+    # Bootstrap all other packages who define a platform
     Nerves.Env.packages()
     |> Enum.reject(&(&1 == Nerves.Env.toolchain()))
     |> Enum.reject(&(&1 == Nerves.Env.system()))
@@ -369,6 +417,33 @@ defmodule Nerves.Env do
     end
   end
 
+  def source_date_epoch() do
+    (System.get_env("SOURCE_DATE_EPOCH") || Application.get_env(:nerves, :source_date_epoch))
+    |> validate_source_date_epoch()
+  end
+
+  defp set_source_date_epoch() do
+    case source_date_epoch() do
+      {:ok, nil} -> :ok
+      {:ok, sde} -> System.put_env("SOURCE_DATE_EPOCH", sde)
+      {:error, error} -> Mix.raise(error)
+    end
+  end
+
+  defp validate_source_date_epoch(nil), do: {:ok, nil}
+  defp validate_source_date_epoch(sde) when is_integer(sde), do: {:ok, Integer.to_string(sde)}
+  defp validate_source_date_epoch(""), do: {:error, "SOURCE_DATE_EPOCH cannot be empty"}
+
+  defp validate_source_date_epoch(sde) when is_binary(sde) do
+    case Integer.parse(sde) do
+      {_sde, _rem} ->
+        {:ok, sde}
+
+      :error ->
+        {:error, "SOURCE_DATE_EPOCH should be a positive integer, received: #{inspect(sde)}"}
+    end
+  end
+
   @doc false
   defp load_packages do
     Mix.Project.deps_paths()
@@ -394,7 +469,7 @@ defmodule Nerves.Env do
 
     Mix.raise("""
     Your mix project cannot contain more than one #{type} for the target.
-    Your dependancies for the target contian the following #{type}s:
+    Your dependencies for the target contain the following #{type}s:
     #{Enum.join(packages, ~s/ /)}
     """)
   end
@@ -414,5 +489,9 @@ defmodule Nerves.Env do
       _e ->
         File.exists?(Package.config_path(path))
     end
+  end
+
+  defp mix_config() do
+    Mix.Project.config()
   end
 end

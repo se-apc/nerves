@@ -11,7 +11,7 @@ Slack](https://elixir-slackin.herokuapp.com/).
 
 Nerves requires that the Erlang version running on your development host be
 compatible with the Erlang version on the embedded target and also depends on
-features added in recent versions of Elixir (`>= 1.4.0`). Because it can be hard
+features added in recent versions of Elixir (`>= 1.7.0`). Because it can be hard
 to manage these tool versions with sufficient granularity using operating system
 packages, it is recommended that you use [ASDF](https://github.com/asdf-vm/asdf)
 to manage Erlang and Elixir installations. This tool works the same on its
@@ -31,7 +31,7 @@ brew install fwup squashfs coreutils xz
 Optionally, if you want to build custom Nerves Systems, you'll also need to
 install [Docker for Mac](https://www.docker.com/docker-mac). After installing
 Docker for Mac, you will likely want to adjust the resource limits imposed on
-Docker, to allow it so successfully compile more complicated custom systems.
+Docker, to allow it to successfully compile more complicated custom systems.
 Click the Docker icon in the top menu bar, then click Preferences > Advanced and
 allow Docker to use all of your CPUs and as much RAM as you think is reasonable
 for your machine (at least 6 GB). The more resources it has access to, the
@@ -75,28 +75,36 @@ Now continue to the instructions for all platforms below.
 
 ## All platforms
 
-First, install the required versions of Erlang/OTP and Elixir using ASDF (see
-the [ASDF docs](https://github.com/asdf-vm/asdf/blob/master/README.md#setup) for
-more.
+First, install the required versions of Erlang/OTP and Elixir. We highly
+recommend using ASDF since the versions in use will be under your control. See
+the [ASDF docs](https://asdf-vm.com/#/core-manage-asdf-vm) for official
+documentation. Here's a summary of the install process:
 
 ```bash
-git clone https://github.com/asdf-vm/asdf.git ~/.asdf --branch v0.5.1
+git clone https://github.com/asdf-vm/asdf.git ~/.asdf --branch v0.7.1
 
 # The following steps are for bash. If you’re using something else, do the
 # equivalent for your shell.
-echo -e '\n. $HOME/.asdf/asdf.sh' >> ~/.bash_profile
-echo -e '\n. $HOME/.asdf/completions/asdf.bash' >> ~/.bash_profile # optional
-source ~/.bash_profile
+echo -e '\n. $HOME/.asdf/asdf.sh' >> ~/.bashrc
+echo -e '\n. $HOME/.asdf/completions/asdf.bash' >> ~/.bashrc # optional
+source ~/.bashrc
 
-asdf plugin-add erlang https://github.com/asdf-vm/asdf-erlang.git
-asdf plugin-add elixir https://github.com/asdf-vm/asdf-elixir.git
+asdf plugin-add erlang
+asdf plugin-add elixir
 
+# Note #1:
 # If on Debian or Ubuntu, you'll want to install wx before running the next
 # line: sudo apt install libwxgtk3.0-dev
-asdf install erlang 21.1 # Any OTP 21 version should work
-asdf install elixir 1.7.3-otp-21
-asdf global erlang 21.1
-asdf global elixir 1.7.3-otp-21
+
+# Note #2:
+# It's possible to use different Erlang and Elixir versions with Nerves. The
+# latest official Nerves systems are compatible with the versions below. In
+# general, differences in patch releases are harmless. Nerves detects
+# configurations that might not work at compile time.
+asdf install erlang 22.2.8
+asdf install elixir 1.10.2-otp-22
+asdf global erlang 22.2.8
+asdf global elixir 1.10.2-otp-22
 ```
 
 It is important to update the versions of `hex` and `rebar` used by Elixir,
