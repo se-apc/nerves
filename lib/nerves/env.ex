@@ -480,15 +480,21 @@ defmodule Nerves.Env do
 
   @doc false
   defp nerves_package?({app, path}) do
+    IO.puts "+++ nerves_package?(#{app}. #{path})"
     try do
       package_config =
         Package.config(app, path)
         |> Keyword.get(:nerves_package)
 
+      IO.puts "+++ package_config = #{inspect package_config} returning false"
+
       package_config != nil
     rescue
-      _e ->
-        File.exists?(Package.config_path(path))
+      err ->
+        IO.puts "+++ nerves_package? rescue mission error #{inspect err}"
+        retval = File.exists?(Package.config_path(path))
+        IO.puts "+++ nerves_package? file.exists? #{inspect Package.config_path(path)} = #{inspect retval}"
+	retval
     end
   end
 
