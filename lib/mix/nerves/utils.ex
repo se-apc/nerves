@@ -1,86 +1,18 @@
 defmodule Mix.Nerves.Utils do
-  @fwup_semver "~> 1.2.5 or ~> 1.3"
+  alias Nerves.Utils.WSL
 
   def shell(cmd, args, opts \\ []) do
     stream = opts[:stream] || IO.binstream(:standard_io, :line)
     std_err = opts[:stderr_to_stdout] || true
-    opts = Keyword.drop(opts, [:into, :stderr_to_stdout, :stream])
+    env = Keyword.get(opts, :env, []) ++ [{"PATH", sanitize_path()}]
+
+    opts =
+      opts
+      |> Keyword.drop([:into, :stderr_to_stdout, :stream])
+      |> Keyword.put(:env, env)
+
     System.cmd(cmd, args, [into: stream, stderr_to_stdout: std_err] ++ opts)
   end
-
-  def preflight do
-    {_, type} = :os.type()
-    check_requirements("fwup")
-    check_requirements("mksquashfs")
-    check_host_requirements(type)
-    Mix.Task.run("nerves.loadpaths")
-  end
-
-  def check_requirements("mksquashfs") do
-    case System.find_executable("mksquashfs") do
-      nil ->
-        Mix.raise("""
-        Squash FS Tools are required to be installed on your system.
-        Please see https://hexdocs.pm/nerves/installation.html#host-specific-tools
-        for installation instructions
-        """)
-
-      _ ->
-        :ok
-    end
-  end
-
-  def check_requirements("fwup") do
-    case System.find_executable("fwup") do
-      nil ->
-        Mix.raise("""
-        fwup is required to create and burn firmware.
-        Please see https://hexdocs.pm/nerves/installation.html#fwup
-        for installation instructions
-        """)
-
-      _ ->
-        with {vsn, 0} <- System.cmd("fwup", ["--version"]),
-             vsn = String.trim(vsn),
-             {:ok, req} = Version.parse_requirement(@fwup_semver),
-             true <- Version.match?(vsn, req) do
-          :ok
-        else
-          false ->
-            {vsn, 0} = System.cmd("fwup", ["--version"])
-
-            Mix.raise("""
-            fwup #{@fwup_semver} is required for Nerves.
-            You are running #{vsn}.
-            Please see https://hexdocs.pm/nerves/installation.html#fwup
-            for installation instructions
-            """)
-
-          error ->
-            Mix.raise("""
-            Nerves encountered an error while checking host requirements for fwup
-            #{inspect(error)}
-            Please open a bug report for this issue on github.com/nerves-project/nerves
-            """)
-        end
-    end
-  end
-
-  def check_host_requirements(:darwin) do
-    case System.find_executable("gstat") do
-      nil ->
-        Mix.raise("""
-        gstat is required to create and burn firmware.
-        Please see https://hexdocs.pm/nerves/installation.html#host-specific-tools
-        for installation instructions
-        """)
-
-      _ ->
-        :ok
-    end
-  end
-
-  def check_host_requirements(_), do: nil
 
   def debug_info(msg) do
     if System.get_env("NERVES_DEBUG") == "1" do
@@ -88,11 +20,13 @@ defmodule Mix.Nerves.Utils do
     end
   end
 
+  @spec check_nerves_system_is_set!() :: String.t()
   def check_nerves_system_is_set! do
     var_name = "NERVES_SYSTEM"
     System.get_env(var_name) || raise_env_var_missing(var_name)
   end
 
+  @spec check_nerves_toolchain_is_set! :: String.t()
   def check_nerves_toolchain_is_set! do
     var_name = "NERVES_TOOLCHAIN"
     System.get_env(var_name) || raise_env_var_missing(var_name)
@@ -100,8 +34,8 @@ defmodule Mix.Nerves.Utils do
 
   def get_devs do
     {result, 0} =
-      if Nerves.Utils.WSL.running_on_wsl?() do
-        Nerves.Utils.WSL.get_fwup_devices()
+      if WSL.running_on_wsl?() do
+        WSL.get_fwup_devices()
       else
         System.cmd("fwup", ["--detect"])
       end
@@ -169,7 +103,7 @@ defmodule Mix.Nerves.Utils do
   def set_provisioning(nil), do: :ok
 
   def set_provisioning(app) when is_atom(app) do
-    Application.load(app)
+    _ = Application.load(app)
 
     Application.get_env(app, :nerves_provisioning)
     |> set_provisioning()
@@ -200,12 +134,80 @@ defmodule Mix.Nerves.Utils do
     """)
   end
 
+  @spec mix_target() :: atom()
+  def mix_target do
+    if function_exported?(Mix, :target, 0) do
+      apply(Mix, :target, [])
+    else
+      (System.get_env("MIX_TARGET") || "host")
+      |> String.to_atom()
+    end
+  end
+
+  def sanitize_path() do
+    System.get_env("PATH")
+    |> String.replace("::", ":")
+  end
+
+  @spec parse_version(String.t()) :: {:error, String.t()} | {:ok, Version.t()}
+  def parse_version(vsn) do
+    cond do
+      # Strict semver
+      Regex.match?(
+        ~r/^((([0-9]+)\.([0-9]+)\.([0-9]+)(?:-([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?)(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?)$/,
+        vsn
+      ) ->
+        {:ok, Version.parse!(vsn)}
+
+      # x.x
+      Regex.match?(~r/^([0-9]+)\.([0-9]+)$/, vsn) ->
+        {:ok, Version.parse!(vsn <> ".0")}
+
+      # x.x.x.x
+      Regex.match?(~r/^([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)$/, vsn) ->
+        [major, minor, patch | _tail] = String.split(vsn, ".")
+
+        vsn = Enum.join([major, minor, patch], ".")
+        {:ok, Version.parse!(vsn)}
+
+      # unknown
+      true ->
+        {:error, "Unable to Version.parse #{inspect(vsn)}"}
+    end
+  end
+
+  def use_distillery?() do
+    less_than_elixir_19 = Nerves.elixir_version() |> Version.compare("1.9.0") == :lt
+    less_than_elixir_19 && Code.ensure_loaded?(Mix.Tasks.Distillery.Release)
+  end
+
+  @spec raise_env_var_missing(String.t()) :: no_return()
   defp raise_env_var_missing(name) do
     Mix.raise("""
     Environment variable $#{name} is not set.
 
     This variable is usually set for you by Nerves when you specify the
-    $MIX_TARGET. For examples please see
+    $MIX_TARGET. It is unusual to need to specify it yourself.
+
+    Some things to check:
+
+    1. In your `mix.exs`, is the value that you have in $MIX_TARGET in the
+      `@all_targets` list? If you're not using `@all_targets`, then the
+      $MIX_TARGET should appear in the `:targets` option for `:nerves_runtime`
+      and other packages that run on the target.
+
+    2. Do you have a dependency on a Nerves system for the target? For example,
+      `{:nerves_system_rpi0, "~> 1.8", runtime: false, targets: :rpi0}`
+
+    3. Is there a typo? For example, is $MIX_TARGET set to `rpi1` when it should
+      be `rpi`.
+
+    4. Is there a typo in the package name of the system? For example, if you
+      have a custom system, `:nerves_system_my_board`, does the spelling of the
+      system in the dependency in your `mix.exs` match the spelling in your
+      system project's `mix.exs`?
+
+    For build examples in the Nerves documentation, please see
     https://hexdocs.pm/nerves/getting-started.html#create-the-firmware-bundle
     """)
   end

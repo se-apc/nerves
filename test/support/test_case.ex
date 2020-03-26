@@ -1,5 +1,9 @@
 defmodule NervesTest.Case do
-  use ExUnit.CaseTemplate
+  use ExUnit.CaseTemplate, async: false
+
+  @compile {:no_warn_undefined, {Mix, :target, 0}}
+  @compile {:no_warn_undefined, {Mix.State, :clear_cache, 0}}
+  @compile {:no_warn_undefined, {Mix.ProjectStack, :clear_cache, 0}}
 
   using do
     quote do
@@ -10,14 +14,32 @@ defmodule NervesTest.Case do
 
   setup do
     Application.stop(:nerves_bootstrap)
+    original_env = System.get_env()
 
     on_exit(fn ->
+      Application.start(:logger)
       Mix.env(:dev)
+
+      if elixir_minor() > 8 do
+        apply(Mix, :target, [:host])
+      end
+
       Mix.Task.clear()
       Mix.Shell.Process.flush()
-      Mix.ProjectStack.clear_cache()
+
+      # < Elixir 1.10.0
+      if elixir_minor() < 10 do
+        Mix.ProjectStack.clear_cache()
+      else
+        Mix.State.clear_cache()
+      end
+
       Mix.ProjectStack.clear_stack()
       delete_tmp_paths()
+      reset_system_env(original_env)
+      Nerves.Env.stop()
+
+      :ok
     end)
 
     :ok
@@ -34,23 +56,40 @@ defmodule NervesTest.Case do
   end
 
   def in_fixture(which, tmp, function) do
-    dest =
-      tmp_path(tmp)
-      |> Path.join(which)
+    src = fixture_path(which)
+    dest = tmp_path(String.replace(tmp, ":", "_"))
+    flag = String.to_charlist(tmp_path())
 
-    fixture_to_tmp(which, dest)
+    System.put_env("XDG_DATA_HOME", Path.join(dest, ".nerves"))
 
-    artifact_dir = Path.join(tmp_path(tmp), ".nerves/artifacts")
-    download_dir = Path.join(tmp_path(tmp), ".nerves/dl")
+    File.rm_rf!(dest)
+    File.mkdir_p!(dest)
+    File.cp_r!(src, dest)
 
-    System.put_env("NERVES_ARTIFACTS_DIR", artifact_dir)
-    System.put_env("NERVES_DL_DIR", download_dir)
+    get_path = :code.get_path()
+    previous = :code.all_loaded()
 
     try do
       File.cd!(dest, function)
     after
-      unload_env()
+      :code.set_path(get_path)
+
+      for {mod, file} <- :code.all_loaded() -- previous,
+          file == [] or (is_list(file) and List.starts_with?(file, flag)) do
+        purge([mod])
+      end
+
+      if elixir_minor() < 10 do
+        unload_env()
+      end
     end
+  end
+
+  def purge(modules) do
+    Enum.each(modules, fn m ->
+      :code.purge(m)
+      :code.delete(m)
+    end)
   end
 
   def in_tmp(which, function) do
@@ -121,8 +160,18 @@ defmodule NervesTest.Case do
     end
   end
 
+  defp reset_system_env(env) do
+    System.get_env()
+    |> Enum.reject(&Map.get(env, elem(&1, 0) != nil))
+    |> Enum.each(&System.put_env(elem(&1, 0), elem(&1, 1)))
+  end
+
   defp delete_tmp_paths do
     tmp = String.to_charlist(tmp_path())
     for path <- :code.get_path(), :string.str(path, tmp) != 0, do: :code.del_path(path)
+  end
+
+  defp elixir_minor() do
+    System.version() |> Version.parse!() |> Map.get(:minor)
   end
 end

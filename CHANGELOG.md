@@ -1,5 +1,161 @@
 # Changelog
 
+## v1.6.1
+
+* Enhancements
+  * Updated documentation to reflect changes in [`nerves_bootstrap 1.8`](https://github.com/nerves-project/nerves_bootstrap/releases/tag/v1.8.0)
+    Updates references to `nerves_init_gadget` and replace with `nerves_pack`.
+    This change shifts new projects and main documentation to promote the use of
+    [`vintage_net`](https://github.com/nerves-networking/vintage_net) for device networking.
+  * Bump the host installed `fwup` version requirement to `~> 1.5`.
+
+## v1.6.0
+
+Nerves 1.6.0 adds support for Elixir 1.10.
+
+As part of the update to Elixir 1.10, it became more difficult to support old
+Elixir and Erlang versions. Therefore, Nerves 1.6.0 requires at least Elixir
+v1.7.0 and Erlang/OTP 21. If your project requires an older version of Elixir or
+Erlang/OTP you can pin the version of `nerves` to an older version.
+
+For example, set your nerves dependency in your mix.exs to:
+
+    {:nerves, "~> 1.5.0", runtime: false},
+
+* Enhancements
+  * Add support for aarch64 host architecture.
+  * Add `mix firmware.metadata` for listing firmware metadata values.
+
+## v1.5.4
+
+* Enhancements
+  * Add `mix firmware.unpack` to unpack generated `.fw` files. This is useful
+    to inspect the contents of the target root filesystem and other .fw info
+    on the host.
+  * Update `mix burn` to accept the path to a `.fw` file with `--firmware | -i`.
+
+* Bug fixes
+  * Invoke `mix firmware` when calling `mix firmware.image`. This matches the
+    behavior of `mix firmware.burn`.
+  * Fix issue with artifact base_dir expansion. This fixes an issue where mix
+    would attempt to resolve the nerves dependency artifacts even though they
+    have already been downloaded.
+  * Always generate `erlinit.config`, even if there are no config override in
+    mix config. This fixes an issue where removing overrides from mix config
+    would not update the erlinit.config.
+
+## v1.5.3
+
+* Bug fixes
+  * Fix various erlinit option parsing/formatting issues.
+
+## v1.5.2
+
+* Enhancements
+  * erlinit.config options can be overridden using the application config now.
+    For example, in your config.exs you can now add:
+
+    ```elixir
+    config :nerves, :erlinit,
+      ctty: "ttyAMA0"
+    ```
+  * Nerves tooling now supports setting the SOURCE_DATE_EPOCH environment
+    variable for reproducible builds during compilation via `:source_date_epoch`
+    in your application config. This removes timestamp differences between
+    builds. See [reproducible-builds.org](https://reproducible-builds.org/) for more information.
+  * Windows Subsystem for Linux improvements
+  * Support XDG_DATA_HOME. If XDG_DATA_HOME is set, Nerves will now store its
+    data under that directory.
+
+* Bug fixes
+  * Do not require sudo on `mix burn` if already privileged.
+  * Keep all boot scripts. Previously, extraneous boot scripts from the OTP
+    release process were removed. Keeping them makes it possible to start
+    Erlang slave nodes and support use cases where triggers at device boot
+    time launch different scripts.
+
+## v1.5.1
+
+* Bug fixes
+  * Update compiler check on `mix firmware` to use the system OTP version
+    when recommending an Elixir install.
+  * Check if using Distillery when calling `mix nerves.release.init`.
+    This is no longer required for Elixir 1.9+ releases.
+
+## v1.5.0
+
+**Updating to Nerves v1.5.0 requires modifications to your project**
+See the [project update guide](https://hexdocs.pm/nerves/updating-projects.html#updating-from-v1-4-to-v1-5) to learn how to migrate your project.
+
+* Enhancements
+  * Added support for Elixir 1.9+ releases.
+
+* Bug fixes
+  * Do not include empty priv directories when constructing rootfs
+    priorities.
+
+## v1.4.5
+
+* Enhancements
+  * Updated docs.
+
+* Bug fixes
+  * Updated the requirement for `distillery` to `~> 2.0.12`. This fixes an issue
+    where `nerves` would downgrade to `1.4.0` when updating `shoehorn`.
+  * Empty `priv` directories are not added to the squashfs sort ordering list.
+
+## v1.4.4
+
+* Bug fixes
+  * This improves the path fix in v1.4.3 (see
+    https://github.com/nerves-project/nerves/issues/389) to cover the local
+    build runner as well.
+
+## v1.4.3
+
+* Bug fixes
+  * Raise an exception if the artifact cache fails to create a directory
+  * Fixes `ArgumentError` when using OTP >= 21.3.0 and calling `mix nerves.system.shell`
+  * Fixes issue with `mix nerves.system.shell` using `asdf` >= 0.7.0 where the
+    path would contain `::` and Buildroot would raise the error:
+
+    ```text
+    You seem to have the current working directory in your
+    PATH environment variable. This doesn't work.
+    support/dependencies/dependencies.mk:21: recipe for target 'dependencies' failed
+    ```
+
+## v1.4.2
+
+* Improvements
+  * Generate rootfs.priorities file. This is used internally when constructing
+    the squashfs filesystem to arrange the contents in the order the files are
+    loaded at runtime which improves boot performance.
+
+## v1.4.1
+
+* Improvements
+  * Improve error message when artifacts can't be found
+
+## v1.4.0
+
+Version v1.4.0 adds support for Elixir 1.8's new built-in support for mix
+targets. In Nerves, the `MIX_TARGET` was used to select the appropriate set of
+dependencies for a device. This lets you switch between building for different
+boards and your host. Elixir 1.8 pulls this support into `mix` and lets you
+annotate dependencies for which targets they should be used.
+
+See the [project update guide](https://hexdocs.pm/nerves/updating-projects.html#updating-from-v1-3-x-to-v1-4-x) to learn how to migrate your project.
+
+## v1.3.4
+
+* Bug fixes
+  * Fixed issue where specifying `build_runner_opts` without `build_runner`
+    would prevent `build_runner_opts` from being set.
+  * Allow `http_opts` to be merged in from the artifact site opts. This fixes
+    an issue with downloading artifacts from github enterprise by specifying
+    `[autoredirect: true]` in the artifact site opts.
+
 ## v1.3.3
 
 * Bug fixes

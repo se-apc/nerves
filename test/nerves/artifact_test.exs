@@ -1,5 +1,5 @@
 defmodule Nerves.ArtifactTest do
-  use NervesTest.Case, async: false
+  use NervesTest.Case
 
   alias Nerves.Artifact.BuildRunners, as: P
   alias Nerves.Artifact
@@ -13,6 +13,17 @@ defmodule Nerves.ArtifactTest do
 
       Env.start()
       assert Env.package(:package_build_runner_override).build_runner == {P.Docker, []}
+    end)
+  end
+
+  test "build_runner_opts overrides" do
+    in_fixture("package_build_runner_opts", fn ->
+      File.cwd!()
+      |> Path.join("mix.exs")
+      |> Code.require_file()
+
+      Env.start()
+      assert {_, [make_args: []]} = Env.package(:package_build_runner_opts).build_runner
     end)
   end
 
@@ -133,5 +144,17 @@ defmodule Nerves.ArtifactTest do
       Mix.Tasks.Nerves.Env.run([])
       assert :ok = Mix.Tasks.Nerves.Precompile.run([])
     end)
+  end
+
+  describe "artifact base_path" do
+    test "XDG_DATA_HOME" do
+      System.put_env("XDG_DATA_HOME", "xdg_data_home")
+      assert "xdg_data_home/nerves/artifacts" = Nerves.Artifact.base_dir()
+    end
+
+    test "falls back to $HOME/.nerves" do
+      System.delete_env("XDG_DATA_HOME")
+      assert Path.expand("~/.nerves/artifacts") == Nerves.Artifact.base_dir()
+    end
   end
 end

@@ -102,12 +102,27 @@ It will be expanded into the current directory under `squashfs-root`
 Different targets have different boot partition contents. To overwrite files in
 the boot partition, you will need to use your own `fwup.conf` file:
 
+#### Copy `fwup.conf` to Your `config/` Directory
+
+```bash
+# Locate the fwup.conf files available in your deps directory
+find deps -name fwup.conf
+# Copy the one that matches your target to the config directory.
+cp deps/nerves_system_rpi0/fwup.conf config/
+# Also copy cmdline.txt as you'll need it below.
+cp deps/nerves_system_rpi0/cmdline.txt config/
+```
+
+#### Configure Your System to Use the Copied `fwup.conf`
+
 ```elixir
 # config/config.exs
 
 config :nerves, :firmware,
   fwup_conf: "config/fwup.conf"
 ```
+
+#### Make Your Changes
 
 In your included `fwup.conf` file, you can use absolute paths or environment
 variables to point to the location of included files.
@@ -383,3 +398,54 @@ attempt to mount the partition. You may want to see [how `nerves_runtime` does
 this for the default application data
 partition](https://github.com/nerves-project/nerves_runtime/blob/master/lib/nerves_runtime/init.ex),
 extending it to meet your specific needs.
+
+### Overriding erlinit.config from Mix Config
+
+Options specified in the `erlinit.config` file can be overridden through the
+project's Mix config. This can be helpful when you want to alter a couple
+options without having to maintain a copy of the entire `erlinit.config`
+from the system. Here is an example of how you can change the `ctty` option
+from the `config/target.exs` file.
+
+```elixir
+config :nerves, :erlinit,
+  ctty: "ttyAMA0"
+```
+
+Options that can only be specified once will overwrite the values specified in
+the `erlinit.config` provided by the system. Options that can be specified
+multiple times, such as `mount` and `env` will append to the original ones.
+If an `erlinit.config` file is provided in the project's `rootfs_overlay` it
+will override everything else.
+
+The following is a list of all options that can be specified:
+
+```elixir
+[
+  boot: Path.t(),
+  ctty: String.t(),
+  uniqueid_exec: String.t(),
+  env: String.t(),
+  gid: non_neg_integer(),
+  graceful_shutdown_timeout: non_neg_integer(),
+  hang_on_exit: boolean(),
+  hang_on_fatal: boolean(),
+  mount: String.t(),
+  hostname_pattern: String.t(),
+  pre_run_exec: String.t(),
+  poweroff_on_exit: boolean(),
+  poweroff_on_fatal: boolean(),
+  reboot_on_fatal: boolean(),
+  release_path: String.t(),
+  run_on_exit: String.t(),
+  alternate_exec: binary(),
+  print_timing: boolean(),
+  uid: non_neg_integer(),
+  update_clock: boolean(),
+  verbose: boolean(),
+  warn_unused_tty: boolean(),
+  working_directory: Path.t()
+]
+```
+
+See [erlinit](https://github.com/nerves-project/erlinit) for more information.

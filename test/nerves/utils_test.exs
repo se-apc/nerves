@@ -1,5 +1,6 @@
 defmodule Nerves.UtilsTest do
-  use NervesTest.Case, async: false
+  use NervesTest.Case
+
   # Special thanks to Hex
 
   alias Nerves.Utils
@@ -74,6 +75,17 @@ defmodule Nerves.UtilsTest do
     assert String.equivalent?("gzip", Utils.File.ext_cmd(".gz"))
     assert String.equivalent?("xz", Utils.File.ext_cmd(".xz"))
     assert String.equivalent?("tar", Utils.File.ext_cmd(".tar"))
+  end
+
+  test "parse otp compiler versions" do
+    assert {:ok, %Version{major: 1, minor: 2, patch: 3}} = Mix.Nerves.Utils.parse_version("1.2.3")
+
+    assert {:ok, %Version{major: 1, minor: 2, patch: 0}} = Mix.Nerves.Utils.parse_version("1.2")
+
+    assert {:ok, %Version{major: 1, minor: 2, patch: 3}} =
+             Mix.Nerves.Utils.parse_version("1.2.3.4")
+
+    assert {:error, _} = Mix.Nerves.Utils.parse_version("invalid")
   end
 
   defp create_archive(content_path, cwd) do
