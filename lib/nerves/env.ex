@@ -96,10 +96,16 @@ defmodule Nerves.Env do
   @spec ensure_loaded(app :: atom, path :: String.t()) ::
           {:ok, Nerves.Package.t()} | {:error, term}
   def ensure_loaded(app, path \\ nil) do
+    IO.puts "+++++++ app  = #{inspect app}"
+    IO.puts "+++++++ path = #{inspect path}"
     path = path || File.cwd!()
+
+    IO.puts "+++++++ path afta = #{inspect path}"
 
     if nerves_package?({app, path}) do
       packages = Agent.get(__MODULE__, & &1)
+
+    IO.puts "+++++++ packages = #{inspect packages}"
 
       case Enum.find(packages, &(&1.app == app)) do
         nil ->
