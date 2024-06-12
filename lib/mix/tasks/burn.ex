@@ -1,11 +1,4 @@
 defmodule Mix.Tasks.Burn do
-  use Mix.Task
-  import Mix.Nerves.Utils
-  alias Nerves.Utils.WSL
-
-  @switches [device: :string, task: :string]
-  @aliases [d: :device, t: :task]
-
   @shortdoc "Write a firmware image to an SDCard"
 
   @moduledoc """
@@ -26,8 +19,11 @@ defmodule Mix.Tasks.Burn do
     * `--task <name>` - apply the specified `fwup` task. See the `fwup.conf`
       file that was used to create the firmware image for options. By
       convention, the `complete` task writes everything to the SDCard including
-      bootloaders and application data partitions. The `upgrade` task only
+      bootloader and application data partitions. The `upgrade` task only
       modifies the parts of the SDCard required to run the new software.
+
+    * `--firmware <name>` - (Optional) The path to the fw file to use.
+      Defaults to `<image_path>/<otp_app>.fw`
 
   ## Examples
 
@@ -36,26 +32,30 @@ defmodule Mix.Tasks.Burn do
   mix burn --device /dev/mmcblk0 --task upgrade
   ```
   """
+  use Mix.Task
+  import Mix.Nerves.Utils
+  alias Mix.Nerves.Preflight
+  alias Nerves.Utils.WSL
+
+  @switches [device: :string, task: :string, firmware: :string]
+  @aliases [d: :device, t: :task, i: :firmware]
+
+  @impl Mix.Task
   def run(argv) do
-    preflight()
+    Preflight.check!()
     debug_info("Nerves Burn")
 
     {opts, argv, _} = OptionParser.parse(argv, switches: @switches, aliases: @aliases)
 
-    config = Mix.Project.config()
     firmware_config = Application.get_env(:nerves, :firmware)
-    otp_app = config[:app]
-    target = config[:target]
 
-    images_path =
-      (config[:images_path] || Path.join([Mix.Project.build_path(), "nerves", "images"]))
-      |> Path.expand()
+    target = mix_target()
 
-    check_nerves_system_is_set!()
+    _ = check_nerves_system_is_set!()
 
-    check_nerves_toolchain_is_set!()
+    _ = check_nerves_toolchain_is_set!()
 
-    fw = "#{images_path}/#{otp_app}.fw"
+    fw = firmware_file(opts)
 
     unless File.exists?(fw) do
       Mix.raise("Firmware for target #{target} not found at #{fw} run `mix firmware` to build")
@@ -71,7 +71,7 @@ defmodule Mix.Tasks.Burn do
       end
 
     set_provisioning(firmware_config[:provisioning])
-    burn(fw, dev, opts, argv)
+    _ = burn(fw, dev, opts, argv)
 
     # Remove the temporary .fw file
     WSL.cleanup_file(fw, firmware_location)
@@ -90,16 +90,7 @@ defmodule Mix.Tasks.Burn do
           if WSL.running_on_wsl?() do
             WSL.admin_powershell_command("fwup", Enum.join(args, " "))
           else
-            case File.stat(dev) do
-              {:ok, %File.Stat{access: :read_write}} ->
-                {"fwup", args}
-
-              _ ->
-                fwup = System.find_executable("fwup")
-                ask_pass = System.get_env("SUDO_ASKPASS") || "/usr/bin/ssh-askpass"
-                System.put_env("SUDO_ASKPASS", ask_pass)
-                {"sudo", provision_env() ++ [fwup] ++ args}
-            end
+            maybe_elevated_user_fwup(dev, args)
           end
 
         {_, :nt} ->
@@ -112,14 +103,60 @@ defmodule Mix.Tasks.Burn do
     shell(cmd, args)
   end
 
+  defp maybe_elevated_user_fwup(dev, args) do
+    fwup = System.find_executable("fwup")
+
+    case File.stat(dev) do
+      {:ok, %File.Stat{access: :read_write}} ->
+        {"fwup", args}
+
+      {:error, :enoent} ->
+        case File.touch(dev, System.os_time(:second)) do
+          :ok ->
+            {"fwup", args}
+
+          {:error, :eacces} ->
+            elevate_user()
+            {"sudo", provision_env() ++ [fwup] ++ args}
+        end
+
+      _ ->
+        elevate_user()
+        {"sudo", provision_env() ++ [fwup] ++ args}
+    end
+  end
+
+  # Requests an elevation of user through askpass
+  defp elevate_user() do
+    ask_pass = System.get_env("SUDO_ASKPASS") || "/usr/bin/ssh-askpass"
+    System.put_env("SUDO_ASKPASS", ask_pass)
+  end
+
   # This is a fix for linux when running through sudo.
   # Sudo will strip the environment and therefore any variables
   # that are set during device provisioning.
-  def provision_env() do
+  defp provision_env() do
     System.get_env()
     |> Enum.filter(fn {k, _} ->
       String.starts_with?(k, "NERVES_") or String.equivalent?(k, "SERIAL_NUMBER")
     end)
     |> Enum.map(fn {k, v} -> k <> "=" <> v end)
+  end
+
+  @spec firmware_file(keyword()) :: String.t()
+  def firmware_file(opts) do
+    with {:ok, fw} <- Keyword.fetch(opts, :firmware),
+         fw <- Path.expand(fw),
+         true <- File.exists?(fw) do
+      fw
+    else
+      false ->
+        fw = Keyword.get(opts, :firmware)
+
+        Mix.raise("The firmware file #{fw} does not exist")
+
+      _ ->
+        Nerves.Env.firmware_path()
+    end
   end
 end

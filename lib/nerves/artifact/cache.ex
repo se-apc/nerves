@@ -1,8 +1,11 @@
 defmodule Nerves.Artifact.Cache do
+  @moduledoc false
   alias Nerves.Artifact
+  alias Nerves.Package
 
   @checksum "CHECKSUM"
 
+  @spec get(Package.t()) :: binary() | nil
   def get(pkg) do
     path = path(pkg)
 
@@ -13,18 +16,19 @@ defmodule Nerves.Artifact.Cache do
     end
   end
 
+  @spec put(Package.t(), binary()) :: :ok | {:error, File.posix()}
   def put(pkg, path) do
     ext = Artifact.ext(pkg)
     dest = path(pkg)
 
-    File.rm_rf(dest)
+    _ = File.rm_rf(dest)
 
     if String.ends_with?(path, ext) do
-      File.mkdir_p(dest)
+      File.mkdir_p!(dest)
       :ok = Nerves.Utils.File.untar(path, dest)
     else
       Path.dirname(dest)
-      |> File.mkdir_p()
+      |> File.mkdir_p!()
 
       File.ln_s!(path, dest)
     end
@@ -33,11 +37,13 @@ defmodule Nerves.Artifact.Cache do
     |> File.write(Artifact.checksum(pkg))
   end
 
+  @spec delete(Package.t()) :: {:ok, [binary()]} | {:error, File.posix(), binary()}
   def delete(pkg) do
     path(pkg)
     |> File.rm_rf()
   end
 
+  @spec valid?(Package.t()) :: boolean()
   def valid?(pkg) do
     path = checksum_path(pkg)
 
@@ -50,12 +56,14 @@ defmodule Nerves.Artifact.Cache do
     end
   end
 
+  @spec path(Package.t()) :: binary()
   def path(pkg) do
     Artifact.base_dir()
     |> Path.join(Artifact.name(pkg))
     |> Path.expand()
   end
 
+  @spec checksum_path(Package.t()) :: binary()
   def checksum_path(pkg) do
     path(pkg)
     |> Path.join(@checksum)
@@ -86,8 +94,8 @@ defmodule Nerves.Artifact.Cache do
 
     if valid_checksum?(pkg, checksum) do
       dest = path(pkg)
-      File.mkdir_p(Artifact.base_dir())
-      File.rm_rf!(dest)
+      File.mkdir_p!(Artifact.base_dir())
+      _ = File.rm_rf!(dest)
       File.ln_s!(build_path_link, dest)
       true
     else

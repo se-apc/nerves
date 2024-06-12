@@ -1,5 +1,6 @@
 defmodule Nerves.UtilsTest do
-  use NervesTest.Case, async: false
+  use NervesTest.Case
+
   # Special thanks to Hex
 
   alias Nerves.Utils
@@ -10,19 +11,23 @@ defmodule Nerves.UtilsTest do
 
   test "proxy_config returns http_proxy credentials when supplied" do
     System.put_env("HTTP_PROXY", "http://nerves:test@example.com")
-    assert Utils.Proxy.config("http://nerves-project.org") == [proxy_auth: {'nerves', 'test'}]
+    assert Utils.Proxy.config("http://nerves-project.org") == [proxy_auth: {~c"nerves", ~c"test"}]
     System.delete_env("HTTP_PROXY")
   end
 
   test "proxy_config returns http_proxy credentials when only username supplied" do
     System.put_env("HTTP_PROXY", "http://nopass@example.com")
-    assert Utils.Proxy.config("http://nerves-project.org") == [proxy_auth: {'nopass', ''}]
+    assert Utils.Proxy.config("http://nerves-project.org") == [proxy_auth: {~c"nopass", ~c""}]
     System.delete_env("HTTP_PROXY")
   end
 
   test "proxy_config returns credentials when the protocol is https" do
     System.put_env("HTTPS_PROXY", "https://test:nerves@example.com")
-    assert Utils.Proxy.config("https://nerves-project.org") == [proxy_auth: {'test', 'nerves'}]
+
+    assert Utils.Proxy.config("https://nerves-project.org") == [
+             proxy_auth: {~c"test", ~c"nerves"}
+           ]
+
     System.delete_env("HTTPS_PROXY")
   end
 
@@ -65,15 +70,19 @@ defmodule Nerves.UtilsTest do
       cwd = File.cwd!()
       archive_path = Path.join(cwd, "archive.tar.gz")
 
-      :os.cmd('dd if=/dev/urandom bs=1024 count=1 of=#{archive_path}')
+      {_, 0} =
+        System.cmd("dd", ["if=/dev/urandom", "bs=1024", "count=1", "of=#{archive_path}"],
+          stderr_to_stdout: true
+        )
+
       assert {:error, _} = Utils.File.validate(archive_path)
     end)
   end
 
   test "validate extension programs" do
-    assert String.equivalent?("gzip", Utils.File.ext_cmd(".gz"))
-    assert String.equivalent?("xz", Utils.File.ext_cmd(".xz"))
-    assert String.equivalent?("tar", Utils.File.ext_cmd(".tar"))
+    assert Utils.File.ext_cmd(".gz") == "gzip"
+    assert Utils.File.ext_cmd(".xz") == "xz"
+    assert Utils.File.ext_cmd(".tar") == "tar"
   end
 
   defp create_archive(content_path, cwd) do

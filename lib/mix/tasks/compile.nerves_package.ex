@@ -1,33 +1,37 @@
 defmodule Mix.Tasks.Compile.NervesPackage do
+  @shortdoc "Nerves Package Compiler"
+  @moduledoc """
+  Compile a Nerves package into a local artifact
+
+  This is only intended to be used by Nerves systems and toolchains
+  and configured in their mix.exs files. It should not be used manually
+  when compiling a Nerves project. See `mix firmware` instead.
+  """
   use Mix.Task
   import Mix.Nerves.IO
 
   require Logger
 
-  @moduledoc """
-    Build a Nerves Artifact from a Nerves Package
-  """
-
-  @shortdoc "Nerves Package Compiler"
   @recursive true
 
+  @impl Mix.Task
   def run(_args) do
     debug_info("Compile.NervesPackage start")
 
     if Nerves.Env.enabled?() do
-      config = Mix.Project.config()
+      bootstrap_check!()
 
-      bootstrap_started?()
-      |> bootstrap_check()
+      package =
+        case Nerves.Env.ensure_loaded(Mix.Project.config()[:app]) do
+          {:ok, package} -> package
+          {:error, err} -> Mix.raise(err)
+        end
 
-      Nerves.Env.ensure_loaded(Mix.Project.config()[:app])
-
-      package = Nerves.Env.package(config[:app])
       toolchain = Nerves.Env.toolchain()
 
       ret =
         if Nerves.Artifact.stale?(package) do
-          Nerves.Artifact.build(package, toolchain)
+          _ = Nerves.Artifact.build(package, toolchain)
           :ok
         else
           :noop
@@ -41,38 +45,50 @@ defmodule Mix.Tasks.Compile.NervesPackage do
     end
   end
 
-  def bootstrap_check(true), do: :ok
+  defp bootstrap_check!() do
+    cond do
+      bootstrap_started?() ->
+        :ok
 
-  def bootstrap_check(false) do
-    error =
-      cond do
-        in_umbrella?(File.cwd!()) ->
-          """
-          Compiling Nerves packages from the top of umbrella projects isn't supported.
-          Please cd into the application directory and try again.
-          """
+      not bootstrap_installed?() ->
+        Mix.raise("""
+        Compiling Nerves packages requires the nerves_bootstrap archive which is missing
+        from the Elixir version currently in use (#{System.version()}).
 
-        true ->
-          """
-          Compiling Nerves packages requires nerves_bootstrap to be started.
-          Please ensure that MIX_TARGET is set in your environment and that you have added
-          the proper aliases to your mix.exs file:
+        Please install it with:
 
-            def project do
-              [
-                # ...
-                aliases: [loadconfig: [&bootstrap/1]],
-              ]
+          mix archive.install hex nerves_bootstrap
+        """)
+
+      true ->
+        Mix.raise(
+          """
+          Compiling Nerves packages requires nerves_bootstrap to be started, which ought to
+          happen in your generated `config.exs`. Please ensure that MIX_TARGET is set in your environment.
+          """ <>
+            if in_umbrella?(File.cwd!()) do
+              """
+
+              When compiling from an Umbrella project you must also ensure:
+
+              * You are compiling from an application directory, not the root of the Umbrella
+
+              * The Umbrella config (/config/config.exs) imports the generated Nerves config from your
+              Nerves application (import_config "../apps/your_nerves_app/config/config.exs")
+
+              """
+            else
+              ""
             end
+        )
+    end
+  end
 
-            defp bootstrap(args) do
-              Application.start(:nerves_bootstrap)
-              Mix.Task.run("loadconfig", args)
-            end
-          """
-      end
-
-    Mix.raise(error)
+  defp bootstrap_installed?() do
+    Mix.path_for(:archives)
+    |> Path.join("*")
+    |> Path.wildcard()
+    |> Enum.any?(&(&1 =~ ~r/nerves_bootstrap/))
   end
 
   defp bootstrap_started?() do

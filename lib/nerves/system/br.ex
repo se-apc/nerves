@@ -1,22 +1,29 @@
 defmodule Nerves.System.BR do
+  @moduledoc """
+  Package builder for Buildroot-based Nerves systems
+  """
   use Nerves.Package.Platform
 
-  alias Nerves.Artifact
-
   import Mix.Nerves.Utils
+  alias Nerves.Artifact
 
   @doc """
   Called as the last step of bootstrapping the Nerves env.
   """
+  @impl Nerves.Package.Platform
   def bootstrap(%{path: path}) do
-    path
-    |> Path.join("nerves_env.exs")
-    |> Code.require_file()
+    _ =
+      path
+      |> Path.join("nerves_env.exs")
+      |> Code.require_file()
+
+    :ok
   end
 
   @doc """
   Build the artifact
   """
+  @impl Nerves.Artifact.BuildRunner
   def build(pkg, toolchain, opts) do
     {_, type} = :os.type()
     make(type, pkg, toolchain, opts)
@@ -25,6 +32,7 @@ defmodule Nerves.System.BR do
   @doc """
   Return the location in the build path to where the global artifact is linked.
   """
+  @impl Nerves.Package.Platform
   def build_path_link(pkg) do
     Artifact.build_path(pkg)
   end
@@ -32,11 +40,11 @@ defmodule Nerves.System.BR do
   @doc """
   Clean up all the build files
   """
+  @impl Nerves.Artifact.BuildRunner
   def clean(pkg) do
-    Artifact.Cache.delete(pkg)
+    _ = Artifact.Cache.delete(pkg)
 
-    Artifact.build_path(pkg)
-    |> File.rm_rf()
+    _ = File.rm_rf(Artifact.build_path(pkg))
 
     Nerves.Env.package(:nerves_system_br)
     |> Map.get(:path)
@@ -48,6 +56,7 @@ defmodule Nerves.System.BR do
   @doc """
   Create an archive of the artifact
   """
+  @impl Nerves.Artifact.BuildRunner
   def archive(pkg, toolchain, opts) do
     {_, type} = :os.type()
     make_archive(type, pkg, toolchain, opts)
@@ -60,7 +69,7 @@ defmodule Nerves.System.BR do
     script = Path.join(Nerves.Env.package(:nerves_system_br).path, "create-build.sh")
     platform_config = pkg.config[:platform_config][:defconfig]
     defconfig = Path.join("#{pkg.path}", platform_config)
-    shell(script, [defconfig, dest])
+    _ = shell(script, [defconfig, dest])
 
     {:ok, pid} = Nerves.Utils.Stream.start_link(file: "build.log")
     stream = IO.stream(pid, :line)

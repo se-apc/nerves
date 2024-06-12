@@ -1,4 +1,5 @@
 defmodule Nerves.Package.Utils.Squashfs do
+  @moduledoc false
   use GenServer
 
   require Logger
@@ -8,6 +9,7 @@ defmodule Nerves.Package.Utils.Squashfs do
   @posix [r: 4, w: 2, x: 1, s: 1, t: 1]
   @sticky ["s", "t", "S", "T"]
 
+  @spec start_link(String.t()) :: GenServer.on_start()
   def start_link(rootfs) do
     params = unsquashfs(rootfs)
 
@@ -15,7 +17,7 @@ defmodule Nerves.Package.Utils.Squashfs do
       Path.dirname(rootfs)
       |> Path.join("squashfs")
 
-    case System.cmd("unsquashfs", [rootfs, "-d", dir]) do
+    case Nerves.Port.cmd("unsquashfs", [rootfs, "-d", dir]) do
       {_result, 0} ->
         GenServer.start_link(__MODULE__, [rootfs, dir, params])
 
@@ -24,33 +26,38 @@ defmodule Nerves.Package.Utils.Squashfs do
     end
   end
 
+  @spec stop(GenServer.server()) :: :ok
   def stop(pid) do
     GenServer.call(pid, :stop)
     GenServer.stop(pid)
   end
 
+  @spec pseudofile(GenServer.server()) :: String.t()
   def pseudofile(pid) do
     GenServer.call(pid, {:pseudofile})
   end
 
+  @spec pseudofile_fragment(GenServer.server(), String.t()) :: String.t()
   def pseudofile_fragment(pid, fragment) do
     GenServer.call(pid, {:pseudofile_fragment, fragment})
   end
 
+  @spec fragment(GenServer.server(), String.t(), Path.t(), Keyword.t()) :: Path.t()
   def fragment(pid, fragment, path, opts \\ []) do
     GenServer.call(pid, {:fragment, fragment, path, opts})
   end
 
+  @spec files(GenServer.server()) :: [Path.t()]
   def files(pid) do
     GenServer.call(pid, {:files})
   end
 
-  def merge(pid, file_systems, pseudofiles, path) do
-    GenServer.call(pid, {:mergefs, file_systems, pseudofiles, path})
-  end
+  # def merge(pid, file_systems, pseudofiles, path) do
+  #   GenServer.call(pid, {:mergefs, file_systems, pseudofiles, path})
+  # end
 
   defp unsquashfs(rootfs) do
-    case System.cmd("unsquashfs", ["-n", "-ll", rootfs]) do
+    case Nerves.Port.cmd("unsquashfs", ["-n", "-ll", rootfs]) do
       {result, 0} ->
         String.split(result, "\n")
         |> parse
@@ -60,6 +67,7 @@ defmodule Nerves.Package.Utils.Squashfs do
     end
   end
 
+  @impl GenServer
   def init([rootfs, stage, params]) do
     {:ok,
      %{
@@ -69,8 +77,9 @@ defmodule Nerves.Package.Utils.Squashfs do
      }}
   end
 
+  @impl GenServer
   def handle_call(:stop, _from, s) do
-    File.rm_rf!(s.stage)
+    _ = File.rm_rf!(s.stage)
     {:reply, :ok, s}
   end
 
@@ -134,17 +143,19 @@ defmodule Nerves.Package.Utils.Squashfs do
 
     IO.puts(path)
 
-    System.cmd("mksquashfs", [
-      tmp_dir,
-      path,
-      "-pf",
-      pseudofile_path,
-      "-noappend",
-      "-no-recovery",
-      "-no-progress"
-    ])
+    _ =
+      Nerves.Port.cmd("mksquashfs", [
+        tmp_dir,
+        path,
+        "-pf",
+        pseudofile_path,
+        "-noappend",
+        "-no-recovery",
+        "-no-progress"
+      ])
 
-    File.rm_rf!(tmp_dir)
+    _ = File.rm_rf!(tmp_dir)
+
     # File.rm!(pseudofile_path)
 
     {:reply, {:ok, path}, s}
@@ -158,7 +169,7 @@ defmodule Nerves.Package.Utils.Squashfs do
   #
   #   unionfs = Path.join(stage_path, "union")
   #   Enum.each(fs, fn() ->
-  #     System.cmd("unsquashfs", ["-d", s.stage, "-f", fs])
+  #     Nerves.Port.cmd("unsquashfs", ["-d", s.stage, "-f", fs])
   #   end)
   #
   #   pseudofile = Enum.reduce(pseudofiles, "", fn(file, acc) ->
@@ -169,7 +180,7 @@ defmodule Nerves.Package.Utils.Squashfs do
   #   pseudofile_path = Path.join(stage_path, "pseudofile")
   #   File.write!(pseudofile_path, pseudofile)
   #
-  #   System.cmd("mksquashfs", [ststage, path, "-pf", pseudofile_path, "-noappend", "-no-recovery", "-no-progress"])
+  #   Nerves.Port.cmd("mksquashfs", [s.stage, path, "-pf", pseudofile_path, "-noappend", "-no-recovery", "-no-progress"])
   #
   #   #File.rm!(pseudofile_path)
   #
@@ -261,7 +272,7 @@ defmodule Nerves.Package.Utils.Squashfs do
     end)
   end
 
-  def path_to_paths(path) do
+  defp path_to_paths(path) do
     path
     |> Path.split()
     |> Enum.reduce(["/"], fn p, acc ->

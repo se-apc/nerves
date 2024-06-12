@@ -6,8 +6,7 @@ erl_crash.dump
 *.ez
 /doc
 /test_tmp
-docs/cheatsheet/*
-!docs/cheatsheet/*.tex
-!docs/cheatsheet/*.eps
-!docs/cheatsheet/Makefile
-!docs/cheatsheet/README.md
+/muontrap-*.log
+test/fixtures/port/*.test
+priv/port
+/tmp

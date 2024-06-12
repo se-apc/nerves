@@ -1,21 +1,22 @@
 defmodule Mix.Tasks.Compile.HostTool do
-  use Mix.Task
-
-  require Logger
-
+  @shortdoc "Hello World File Generator"
   @moduledoc """
     Use a nerves host tool from an Elixir compiler
   """
 
-  @shortdoc "Hello World File Generator"
+  use Mix.Task
+
+  require Logger
+
   @recursive true
 
+  @impl Mix.Task
   def run(_args) do
     file =
       File.cwd!()
       |> Path.join("hello")
 
-    case System.cmd("host_tool", [file]) do
+    case Nerves.Port.cmd("host_tool", [file]) do
       {_, 0} ->
         :ok
 

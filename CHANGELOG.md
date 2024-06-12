@@ -1,5 +1,454 @@
 # Changelog
 
+## v1.10.5 - 2023-12-26
+
+* Improvements
+  * Support Elixir 1.16
+  * Add support for `:gitea_releases` and `:gitea_api` artifact sites
+
+* Bug Fix
+  * Ensure a package is loaded before `compile.nerves_package`
+
+## v1.10.4 - 2023-09-13
+
+* Improvements
+  * Adjust compilation error when `nerves_bootstrap` is missing
+
+* Bug Fix
+  * Adjust `mix nerves.system.shell` for OTP 26
+    * With OTP 26, this task cannot completely handle the shell and
+      instead prints out the command to run manually for the
+      same effect.
+
+## v1.10.3 - 2023-07-07
+
+* Improvements
+  * Support Elixir 1.15 / OTP 26
+  * Fix misleading `%IO.Stream{}` error when building firmware
+  * Add validations for `vm.args.eex` during firmware build
+
+## v1.10.2 - 2023-04-11
+
+* Improvements
+  * Change `BuildRunners.Docker` to use GitHub Container Registry by default
+
+## v1.10.1 - 2023-03-08
+
+* Improvements
+  * Use `GitHubAPI` for public release artifacts for helpful reports on error
+  * Allow `castore: v1.0` to be used
+
+## v1.10.0 - 2023-03-03
+
+This release removes the ability to specify an alternative JSON codec with
+`:json_codec` config option and defaults to using `Jason`. If set, everything
+will function as normal but you will see a compiler warning.
+
+* Bug fix
+  * Prevent accidentally installing `:nerves` as an archive
+  * Add default mksquashfs flags when none specified
+
+## v1.9.3 - 2023-02-11
+
+* Bug fix
+  * Temporarily revert GitHub release update in v1.9.2. It produces an error on
+    new projects when downloading artifacts. It's easily fixed by adding a
+    `jason`, but a better fix will be coming.
+
+## v1.9.2 - 2023-02-05
+
+* Improvements
+  * `:github_api` artifact site resolver was completely refactored
+    * More contextual error messages
+    * `GITHUB_TOKEN` and `GH_TOKEN` environment variables supported (They were
+      previously ignored despite the error message suggesting them to be used)
+    * `:user` option no longer required, but still supported (effectively ignored
+      by GitHub if the token is supplied)
+  * `:github_release` switched to use the same GitHub resolver as `:github_api`
+    in order to have the same benefits
+  * Remove duplicate artifact request with 64 byte checksum name
+
+* Bug Fix
+  * `mix firmware` now places temporary build products in `MIX_BUILD_PATH` which
+    prevents them from being stored in `_build/` root and compiling different
+    targets in different terminals. See #576
+  * Check if supplied rootfs_overlays have incompatible directories. See
+    [nerves-project/nerves_system_br#495](https://github.com/nerves-project/nerves_system_br/issues/495).
+
+## v1.9.1 - 2022-09-11
+
+This is a patch release that fixes trivial tooling issues found when using
+Elixir 1.14 and Erlang 25.0.4. It's expected to be a safe update from v1.9.0.
+
+## v1.9.0 - 2022-08-23
+
+This release removes warnings when using Elixir 1.14 rc releases since they
+appear to work fine.
+
+* Improvements
+  * Added `mix nerves.artifact.details` to list information in Nerves system and
+    toolchain projects. Thanks to @udoschneider for this feature.
+  * Many documentation updates including version charts for Nerves systems.
+    Thanks to @mnishiguchi.
+
+## v1.8.0 - 2022-05-11
+
+This release requires Elixir 1.11.2 or later. It has no new features. This is
+the first batch of updates to improve our ability to maintain Nerves tooling
+long term now that we can remove old features and workaround.
+
+* Bug fix
+  * Fix missing space in `CFLAGS` and `CXXFLAGS`. It would sometimes cause
+    compiler warnings.
+
+## v1.7.16
+
+* Bug fix
+  * Fix Erlang compiler check so that Erlang/OTP 24.3 does not trigger an error
+    when building projects.
+
+## v1.7.15
+
+* Bug fix
+  * Fix `TARGET_GCC_FLAGS` issue that inadvertently removed `CFLAGS` options on
+    Nerves systems that used it.
+
+## v1.7.14
+
+* Improvements
+  * Unset environment variables set by Erlang that can confuse some C/C++
+    libraries when building.
+  * Add experimental support for `TARGET_GCC_FLAGS` for enabling CPU-specific
+    features in NIFs and ports via Nerves package definitions. This is similar
+    in intent to `TARGET_CPU`, etc.
+
+## v1.7.13
+
+* Improvements
+  * Verify the remote website when downloading artifacts. This fixes the warning
+    about unverified HTTPS connections.
+  * Fix error message printout when Nerves toolchain builds fail
+
+## v1.7.12
+
+* Improvements
+  * Allow Elixir 1.13.0-rc.0 to be used to build projects. It looks like it
+    works fine and doesn't cause issues with Nerves.
+  * Add message after the build completes to let you know what to do next.
+
+## v1.7.11
+
+* Bug fixes
+  * Don't set xattrs when running `mix firmware.unpack`. This fixes filesystem
+    permission errors during extraction for some users.
+
+## v1.7.10
+
+* Improvements
+  * Update `mix firmware.unpack` to be more flexible with input firmware and
+    output directories. If you're using `mix firmware.unpack` in a script, you
+    may need to update the script.
+  * Reduce C compiler build prints
+
+## v1.7.9
+
+* Improvements
+  * Add helper script generator for using gdb to analyze core dumps. Nerves
+    systems ship with debug symbols (target images have these stripped) that can
+    be used to get stack traces and more from core dumps from the Erlang VM and
+    other C/C++ programs. See the [Debugging C in Nerves blog
+    post](https://embedded-elixir.com/post/2021-07-03-debugging-c/) for an example.
+  * Support the new `:limits` option in erlinit so that it's possible to set the
+    core dump limits (i.e., enable core dumps) before Erlang starts.
+
+## v1.7.8
+
+* Bug fixes
+  * Fix toolchain downloads when using Erlang/OTP 24 on Apple M1 macs.
+
+## v1.7.7
+
+* Bug fixes
+  * Fix compiler version check error when using Erlang/OTP 24
+
+## v1.7.6
+
+* Enhancements
+  * Update supported Elixir version to include 1.12
+
+## v1.7.5
+
+* Bug fixes
+  * Fixes an issue where query parameters would be percent-encoded twice.
+    Packages that use `query_params` argument option to `artifact_sites` could
+    be impacted. For example, packages storing build artifacts in AWS S3
+    require the `X-Amz-Credential` query parameter key whose value
+    includes the reserved character `/`. This symbol is double encoded to
+    `%252F`. This failed on systems with Erlang OTP-23.2 and above.
+    See https://github.com/nerves-project/nerves/issues/604 for additional context.
+
+## v1.7.4
+
+* Experimental features
+  * Packages can provide custom system environment variables to be exported.
+    The initial use case for this feature is to export system specific
+    information for llvm-based tools.
+
+## v1.7.3
+
+* Bug fixes
+  * Fixes a hang when downloading artifacts from GitHub. The hang looked like
+    this and affected artifact downloads from public GitHub repositories:
+
+    ```sh
+    Resolving Nerves artifacts...
+      Resolving nerves_toolchain_xyz
+      => Trying https:...
+    ```
+
+## v1.7.2
+
+* Bug fixes
+  * Fix Elixir semver requirements to produce warnings on unsupported versions.
+  * Produce better errors on HTTP timeouts
+
+## v1.7.1
+
+* Enhancements
+  * Documentation and docker improvements for Windows Subsystem for Linux 2
+
+## v1.7.0
+
+Nerves 1.7.0 removes support for creating OTP releases using Distillery and
+only supports using Elixir releases. As a result, the minimum supported version
+of Elixir is now version 1.9.
+
+Official Nerves systems now support applying firmware using patches. This
+greatly reduces the amount of data that required to push firmware updates
+to devices. The minimum requirement for fwup has been updated to 1.8
+to enable support for this feature.
+
+* Bug fixes
+  * Pass all unspecified erlinit args to the generator instead of silently
+    ignoring them.
+  * Use host CC when compiling the port.
+
+## v1.6.5
+
+* Bug fixes
+  * Fix issues with executing system commands on non mac hosts.
+
+## v1.6.4
+
+* Experimental features
+  * Added `mix firmware.patch` to locally create firmware patch files for
+    feature testing. This feature is under development.
+    See the [experimental features](https://github.com/nerves-project/nerves/blob/main/docs/Experimental%20Features.md) doc for more info.
+  * Added `:mksquashfs_flags` to the nerves firmware config to allow passing
+    additional flags to the `mksquashfs` call that produces the final rootfs.
+    If you are experimenting with creating patchable firmware, you should
+    use this feature to disable squashfs compression.
+
+    ```elixir
+    config :nerves, :firmware
+      mksquashfs_flags: ["-noI", "-noD", "-noF", "-noX"]
+    ```
+
+* Bug fixes
+  * Replace calls to `System.cmd` with a `Nerves.Port.cmd`. This code was
+    provided by `muontrap` and is used to clean up spawned system processes
+    when the vm exits.
+    This fixes issues with the docker build runner executing multiple times
+    and multiple calls to `mix firmware` after breaking out of the VM before
+    the first call finishes.
+  * Fix issue where SD card detection may fail while calling `mix burn` when`fwup`
+    returns additional fields.
+  * Clean the release directory when calling `mix firmware`. This prevents
+    OTP releases from accumulating unnecessary libraries and OTP applications
+    over time.
+
+## v1.6.3
+
+* Bug fixes
+  * Fix required key validation on github_api resolver.
+
+## v1.6.2
+
+* Bug fixes
+  * Improve error message returned when calling `mix firmware` when the local
+    system artifact cannot be found and possibly needs to be built.
+
+  * GitHub API artifact resolver will no longer raise if missing required opts.
+
+  The GitHub API artifact resolver is useful when you want to enable access
+  to artifacts added to GitHub releases in private GitHub repositories.
+  Fetching an artifact from a private GitHub repo requires the passing
+  `username, token, tag` as options. If any of these options were omitted,
+  the resolver would raise and prevent compilation from continuing.
+  This is problematic when you are trying to actually compile the system
+  in CI. Artifact resolvers should make a best effort on downloading the
+  artifacts, and return `{:error, reason}` if they are unsuccessful. This
+  will allow the system to fall back to performing a compile.
+
+## v1.6.1
+
+* Enhancements
+  * Updated documentation to reflect changes in [`nerves_bootstrap 1.8`](https://github.com/nerves-project/nerves_bootstrap/releases/tag/v1.8.0)
+    Updates references to `nerves_init_gadget` and replace with `nerves_pack`.
+    This change shifts new projects and main documentation to promote the use of
+    [`vintage_net`](https://github.com/nerves-networking/vintage_net) for device networking.
+  * Bump the host installed `fwup` version requirement to `~> 1.5`.
+
+## v1.6.0
+
+Nerves 1.6.0 adds support for Elixir 1.10.
+
+As part of the update to Elixir 1.10, it became more difficult to support old
+Elixir and Erlang versions. Therefore, Nerves 1.6.0 requires at least Elixir
+v1.7.0 and Erlang/OTP 21. If your project requires an older version of Elixir or
+Erlang/OTP you can pin the version of `nerves` to an older version.
+
+For example, set your nerves dependency in your mix.exs to:
+
+```elixir
+{:nerves, "~> 1.5.0", runtime: false},
+```
+
+* Enhancements
+  * Add support for aarch64 host architecture.
+  * Add `mix firmware.metadata` for listing firmware metadata values.
+
+## v1.5.4
+
+* Enhancements
+  * Add `mix firmware.unpack` to unpack generated `.fw` files. This is useful
+    to inspect the contents of the target root filesystem and other .fw info
+    on the host.
+  * Update `mix burn` to accept the path to a `.fw` file with `--firmware | -i`.
+
+* Bug fixes
+  * Invoke `mix firmware` when calling `mix firmware.image`. This matches the
+    behavior of `mix firmware.burn`.
+  * Fix issue with artifact base_dir expansion. This fixes an issue where mix
+    would attempt to resolve the nerves dependency artifacts even though they
+    have already been downloaded.
+  * Always generate `erlinit.config`, even if there are no config override in
+    mix config. This fixes an issue where removing overrides from mix config
+    would not update the erlinit.config.
+
+## v1.5.3
+
+* Bug fixes
+  * Fix various erlinit option parsing/formatting issues.
+
+## v1.5.2
+
+* Enhancements
+  * erlinit.config options can be overridden using the application config now.
+    For example, in your config.exs you can now add:
+
+    ```elixir
+    config :nerves, :erlinit,
+      ctty: "ttyAMA0"
+    ```
+
+  * Nerves tooling now supports setting the SOURCE_DATE_EPOCH environment
+    variable for reproducible builds during compilation via `:source_date_epoch`
+    in your application config. This removes timestamp differences between
+    builds. See [reproducible-builds.org](https://reproducible-builds.org/) for more information.
+  * Windows Subsystem for Linux improvements
+  * Support XDG_DATA_HOME. If XDG_DATA_HOME is set, Nerves will now store its
+    data under that directory.
+
+* Bug fixes
+  * Do not require sudo on `mix burn` if already privileged.
+  * Keep all boot scripts. Previously, extraneous boot scripts from the OTP
+    release process were removed. Keeping them makes it possible to start
+    Erlang slave nodes and support use cases where triggers at device boot
+    time launch different scripts.
+
+## v1.5.1
+
+* Bug fixes
+  * Update compiler check on `mix firmware` to use the system OTP version
+    when recommending an Elixir install.
+  * Check if using Distillery when calling `mix nerves.release.init`.
+    This is no longer required for Elixir 1.9+ releases.
+
+## v1.5.0
+
+**Updating to Nerves v1.5.0 requires modifications to your project**
+See the [project update guide](https://hexdocs.pm/nerves/updating-projects.html#updating-from-v1-4-to-v1-5) to learn how to migrate your project.
+
+* Enhancements
+  * Added support for Elixir 1.9+ releases.
+
+* Bug fixes
+  * Do not include empty priv directories when constructing rootfs
+    priorities.
+
+## v1.4.5
+
+* Enhancements
+  * Updated docs.
+
+* Bug fixes
+  * Updated the requirement for `distillery` to `~> 2.0.12`. This fixes an issue
+    where `nerves` would downgrade to `1.4.0` when updating `shoehorn`.
+  * Empty `priv` directories are not added to the squashfs sort ordering list.
+
+## v1.4.4
+
+* Bug fixes
+  * This improves the path fix in v1.4.3 (see
+    https://github.com/nerves-project/nerves/issues/389) to cover the local
+    build runner as well.
+
+## v1.4.3
+
+* Bug fixes
+  * Raise an exception if the artifact cache fails to create a directory
+  * Fixes `ArgumentError` when using OTP >= 21.3.0 and calling `mix nerves.system.shell`
+  * Fixes issue with `mix nerves.system.shell` using `asdf` >= 0.7.0 where the
+    path would contain `::` and Buildroot would raise the error:
+
+    ```text
+    You seem to have the current working directory in your
+    PATH environment variable. This doesn't work.
+    support/dependencies/dependencies.mk:21: recipe for target 'dependencies' failed
+    ```
+
+## v1.4.2
+
+* Improvements
+  * Generate rootfs.priorities file. This is used internally when constructing
+    the squashfs filesystem to arrange the contents in the order the files are
+    loaded at runtime which improves boot performance.
+
+## v1.4.1
+
+* Improvements
+  * Improve error message when artifacts can't be found
+
+## v1.4.0
+
+Version v1.4.0 adds support for Elixir 1.8's new built-in support for mix
+targets. In Nerves, the `MIX_TARGET` was used to select the appropriate set of
+dependencies for a device. This lets you switch between building for different
+boards and your host. Elixir 1.8 pulls this support into `mix` and lets you
+annotate dependencies for which targets they should be used.
+
+See the [project update guide](https://hexdocs.pm/nerves/updating-projects.html#updating-from-v1-3-x-to-v1-4-x) to learn how to migrate your project.
+
+## v1.3.4
+
+* Bug fixes
+  * Fixed issue where specifying `build_runner_opts` without `build_runner`
+    would prevent `build_runner_opts` from being set.
+  * Allow `http_opts` to be merged in from the artifact site opts. This fixes
+    an issue with downloading artifacts from github enterprise by specifying
+    `[autoredirect: true]` in the artifact site opts.
+
 ## v1.3.3
 
 * Bug fixes
@@ -88,8 +537,9 @@ You will need to update your version of shoehorn to `{:shoehorn, "~> 0.4"}`.
       config :nerves, :firmware,
         provisioning: :nerves_hub
       ```
+
   * Bug Fixes
-    * Fix issue with setting provisioning environment vairables when calling
+    * Fix issue with setting provisioning environment variables when calling
       `mix firmware.burn` on Linux systems. Environment variables prefixed with
       `NERVES_` and the variable `SERIAL_NUMBER` will be copied into the environment.
 
@@ -118,6 +568,7 @@ You will need to update your version of shoehorn to `{:shoehorn, "~> 0.4"}`.
     can use for execution. This is useful for situations where you may
     have a machine with a lot of CPUs but not enough ram.
 
+    ```elixir
       # mix.exs
       defp nerves_package do
         [
@@ -125,6 +576,7 @@ You will need to update your version of shoehorn to `{:shoehorn, "~> 0.4"}`.
           build_runner_opts: [make_args: ["PARALLEL_JOBS=8"]],
         ]
       end
+    ```
 
 ## v1.0.1
 
@@ -320,6 +772,7 @@ Also, update your nerves dependency to:
     are helpers that are useful for cleanly specifying locations where artifacts
     can be fetched. If you are hosting your artifacts using Github releases
     you can specify it like this:
+
     ```elixir
     artifact_sites: [
       {:github_releases, "organization/project"}
@@ -328,12 +781,14 @@ Also, update your nerves dependency to:
 
     You can also specify your own custom server location by using the `:prefix`
     helper by passing a url or file path:
+
     ```elixir
     artifact_sites: [
       {:prefix, "/path/to/artifacts"}
       {:prefix, "https://my_bucket.s3-east.amazonaws.com/artifacts"}
     ]
     ```
+
     Artifact sites will be tried in order until one successfully downloads the
     artifact.
 * Bug Fixes
@@ -350,6 +805,7 @@ Also, update your nerves dependency to:
     This issue was causing the release to contain compiled
     libraries from the host instead of the target.
     The error would look similar to this
+
     ```text
     Got:
     ELF 64-bit LSB relocatable, x86-64, version 1
@@ -357,12 +813,13 @@ Also, update your nerves dependency to:
     If binary, expecting:
     ELF 32-bit LSB executable, ARM, EABI5 version 1, interpreter /lib/ld-linux.so.3, for GNU/Linux 4.1.39
     ```
+
     You can fix this by updating and regenerating the new project.
 
 ## v0.8.2
 
 * Enhancements
-  * Added [contributing guide](https://github.com/nerves-project/nerves/blob/master/docs/CONTRIBUTING.md)
+  * Added [contributing guide](https://github.com/nerves-project/nerves/blob/main/docs/CONTRIBUTING.md)
   * Improved error messages when `NERVES_SYSTEM` or `NERVES_TOOLCHAIN` are unset.
 
 * Bug Fixes
@@ -372,6 +829,7 @@ Also, update your nerves dependency to:
 
 * Bug Fixes
   * Fixed an error in the `Nerves` Distillery plugin that was causing the following error message:
+
     ```text
     Plugin failed: no function clause matching in IO.chardata_to_string/1
     ```

@@ -1,4 +1,7 @@
 defmodule Nerves.Utils.File do
+  @moduledoc false
+
+  @spec untar(String.t(), String.t() | nil) :: :ok | {:error, any}
   def untar(file, destination \\ nil) do
     destination = destination || File.cwd!()
 
@@ -9,6 +12,7 @@ defmodule Nerves.Utils.File do
   @doc """
   Create a tar of the contents of the path and specified output file
   """
+  @spec tar(String.t(), String.t()) :: :ok | {:error, any}
   def tar(path, file) do
     working_dir = Path.dirname(path)
     path = Path.basename(path)
@@ -17,6 +21,7 @@ defmodule Nerves.Utils.File do
     |> result()
   end
 
+  @spec validate(String.t()) :: :ok | {:error, any}
   def validate(file) do
     Path.extname(file)
     |> ext_cmd()
@@ -24,6 +29,8 @@ defmodule Nerves.Utils.File do
     |> result()
   end
 
+  @doc false
+  @spec ext_cmd(String.t()) :: String.t()
   def ext_cmd(".xz"), do: "xz"
   def ext_cmd(".gz"), do: "gzip"
   def ext_cmd(".tar"), do: "tar"
@@ -33,7 +40,7 @@ defmodule Nerves.Utils.File do
 
   defp cmd(cmd, args) do
     if System.find_executable(cmd) do
-      System.cmd(cmd, args, stderr_to_stdout: true)
+      Nerves.Port.cmd(cmd, args, stderr_to_stdout: true)
     else
       raise "Could not find '#{cmd}'. See https://hexdocs.pm/nerves/installation.html for required packages."
     end

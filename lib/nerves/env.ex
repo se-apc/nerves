@@ -8,7 +8,7 @@ defmodule Nerves.Env do
   about Nerves compile time dependencies before any code is compiled.
   """
 
-  alias Nerves.{Package, Artifact}
+  alias Nerves.{Artifact, Package}
 
   @doc """
   Starts the Nerves environment agent and loads package information.
@@ -16,16 +16,21 @@ defmodule Nerves.Env do
   `{:error, {:already_started, pid}}` with the pid of that process
   """
   @spec start() :: Agent.on_start()
-  def start do
+  def start() do
+    set_source_date_epoch()
     Agent.start_link(fn -> load_packages() end, name: __MODULE__)
   end
 
   @doc """
   Stop the Nerves environment agent.
   """
-  @spec stop() :: :ok
-  def stop do
-    Agent.stop(__MODULE__)
+  @spec stop() :: :ok | :not_running
+  def stop() do
+    if Process.whereis(__MODULE__) do
+      Agent.stop(__MODULE__)
+    else
+      :not_running
+    end
   end
 
   @doc """
@@ -53,15 +58,39 @@ defmodule Nerves.Env do
   end
 
   @doc """
-  The download location for artifacts.
+  Check if the Nerves.Env is loaded
+  """
+  @spec loaded?() :: boolean
+  def loaded?() do
+    System.get_env("NERVES_ENV_BOOTSTRAP") != nil
+  end
+
+  @doc """
+  The download location for artifact downloads.
 
   Placing an artifact tar in this location will bypass the need for it to
   be downloaded.
   """
   @spec download_dir() :: path :: String.t()
-  def download_dir do
-    (System.get_env("NERVES_DL_DIR") || "~/.nerves/dl")
+  def download_dir() do
+    (System.get_env("NERVES_DL_DIR") || Path.join(data_dir(), "dl"))
     |> Path.expand()
+  end
+
+  @doc """
+  The location for storing global nerves data.
+
+  The base directory is normally set by the `XDG_DATA_HOME`
+  environment variable (i.e. `$XDG_DATA_HOME/nerves/`).
+  If `XDG_DATA_HOME` is unset, the user's home directory
+  is used (i.e. `$HOME/.nerves`).
+  """
+  @spec data_dir() :: path :: String.t()
+  def data_dir() do
+    case System.get_env("XDG_DATA_HOME") do
+      directory when is_binary(directory) -> Path.join(directory, "nerves")
+      nil -> Path.expand("~/.nerves")
+    end
   end
 
   @doc """
@@ -70,7 +99,7 @@ defmodule Nerves.Env do
   This allows you to start in one target, like host, but then
   switch to a different target.
   """
-  @spec change_target(String.t()) :: :no_return
+  @spec change_target(String.t()) :: :ok
   def change_target(target) do
     System.put_env("MIX_TARGET", target)
     :init.restart()
@@ -80,7 +109,7 @@ defmodule Nerves.Env do
   @doc """
   Cleans the artifacts for the package build_runners of all specified packages.
   """
-  @spec clean([Nerves.Package.t()]) :: :ok | {:error, term}
+  @spec clean([Nerves.Package.t()]) :: :ok
   def clean(pkgs) do
     Enum.each(pkgs, &Artifact.clean/1)
   end
@@ -93,7 +122,7 @@ defmodule Nerves.Env do
     * `app` - The atom of the app to load
     * `path` - Optional path for the app
   """
-  @spec ensure_loaded(app :: atom, path :: String.t()) ::
+  @spec ensure_loaded(app :: atom, path :: String.t() | nil) ::
           {:ok, Nerves.Package.t()} | {:error, term}
   def ensure_loaded(app, path \\ nil) do
     path = path || File.cwd!()
@@ -103,17 +132,13 @@ defmodule Nerves.Env do
 
       case Enum.find(packages, &(&1.app == app)) do
         nil ->
-          case Package.load_config({app, path}) do
-            %Package{} = package ->
-              Agent.update(__MODULE__, fn packages ->
-                [package | packages]
-              end)
+          %Package{} = package = Package.load_config({app, path})
 
-              {:ok, package}
+          Agent.update(__MODULE__, fn packages ->
+            [package | packages]
+          end)
 
-            error ->
-              error
-          end
+          {:ok, package}
 
         package ->
           {:ok, package}
@@ -144,6 +169,7 @@ defmodule Nerves.Env do
   end
 
   @doc false
+  @spec parse_arch(String.t() | [String.t()]) :: String.t()
   def parse_arch(arch) when is_binary(arch) do
     arch
     |> String.split("-")
@@ -155,15 +181,11 @@ defmodule Nerves.Env do
     arch = List.first(arch)
 
     case arch do
-      <<"win", _tail::binary>> ->
-        "x86_64"
-
-      arch ->
-        if String.contains?(arch, "arm") do
-          "arm"
-        else
-          "x86_64"
-        end
+      <<"win", _rest::binary>> -> "x86_64"
+      <<"arm", _rest::binary>> -> "arm"
+      "aarch64" -> "aarch64"
+      "x86_64" -> "x86_64"
+      _anything_else -> "x86_64"
     end
   end
 
@@ -189,6 +211,7 @@ defmodule Nerves.Env do
   end
 
   @doc false
+  @spec parse_platform(String.t() | [String.t()]) :: String.t()
   def parse_platform(platform) when is_binary(platform) do
     platform
     |> String.split("-")
@@ -216,7 +239,7 @@ defmodule Nerves.Env do
   Lists all Nerves packages loaded in the Nerves environment.
   """
   @spec packages() :: [Nerves.Package.t()]
-  def packages do
+  def packages() do
     Agent.get(__MODULE__, & &1) || Mix.raise("Nerves packages are not loaded")
   end
 
@@ -233,17 +256,41 @@ defmodule Nerves.Env do
   @doc """
   Lists packages by package type.
   """
-  @spec packages_by_type(type :: String.t()) :: [Nerves.Package.t()]
+  @spec packages_by_type(type :: atom(), [Nerves.Package.t()] | nil) :: [Nerves.Package.t()]
   def packages_by_type(type, packages \\ nil) do
     (packages || packages())
     |> Enum.filter(&(&1.type === type))
   end
 
   @doc """
+  The path to where firmware build files are stored
+  This can be overridden in a Mix project by setting the `:images_path` key.
+
+    images_path: "/some/other/location"
+
+  Defaults to (build_path)/nerves/images
+  """
+  @spec images_path(keyword) :: String.t()
+  def images_path(config \\ mix_config()) do
+    (config[:images_path] || Path.join([Mix.Project.build_path(), "nerves", "images"]))
+    |> Path.expand()
+  end
+
+  @doc """
+  The path to the firmware file
+  """
+  @spec firmware_path(keyword) :: String.t()
+  def firmware_path(config \\ mix_config()) do
+    config
+    |> images_path()
+    |> Path.join("#{config[:app]}.fw")
+  end
+
+  @doc """
   Helper function for returning the system type package
   """
-  @spec system() :: Nerves.Package.t()
-  def system do
+  @spec system() :: Nerves.Package.t() | nil
+  def system() do
     system =
       packages_by_type(:system)
       |> List.first()
@@ -254,16 +301,16 @@ defmodule Nerves.Env do
   @doc """
   Helper function for returning the system_platform type package
   """
-  @spec system_platform() :: Nerves.Package.t()
-  def system_platform do
+  @spec system_platform() :: module()
+  def system_platform() do
     system().platform
   end
 
   @doc """
   Helper function for returning the toolchain type package
   """
-  @spec toolchain() :: Nerves.Package.t()
-  def toolchain do
+  @spec toolchain() :: Nerves.Package.t() | nil
+  def toolchain() do
     toolchain =
       packages_by_type(:toolchain)
       |> List.first()
@@ -274,8 +321,8 @@ defmodule Nerves.Env do
   @doc """
   Helper function for returning the toolchain_platform type package
   """
-  @spec toolchain_platform() :: Nerves.Package.t()
-  def toolchain_platform do
+  @spec toolchain_platform() :: atom()
+  def toolchain_platform() do
     toolchain().platform
   end
 
@@ -287,9 +334,10 @@ defmodule Nerves.Env do
   for the package defining system_platform.
   """
   @spec bootstrap() :: :ok
-  def bootstrap do
+  def bootstrap() do
     nerves_system_path = system_path()
     nerves_toolchain_path = toolchain_path()
+    packages = Nerves.Env.packages()
 
     [
       {"NERVES_SYSTEM", nerves_system_path},
@@ -302,12 +350,34 @@ defmodule Nerves.Env do
           Mix.shell().info("#{k} is unset")
 
         File.dir?(v) != true ->
-          Mix.shell().error("""
-          #{k} is set to a path which does not exist:
-          #{v}
-          """)
+          with "NERVES_SYSTEM" <- k,
+               %{app: app, dep: :path} <- system() do
+            Mix.shell().info([
+              :yellow,
+              """
+              Local Nerves system detected but is not compiled:
 
-          exit({:shutdown, 1})
+                #{app}
+              """,
+              :reset
+            ])
+
+            # Since this is a local system, let this be set
+            # so that the compilation check later on can handle if
+            # it should be compiled or not
+            System.put_env(k, v)
+          else
+            _err ->
+              Mix.shell().error("""
+              #{k} is set to a path which does not exist:
+              #{v}
+
+              Try running `mix deps.get` to see if this resolves the issue by
+              downloading the missing artifact.
+              """)
+
+              exit({:shutdown, 1})
+          end
 
         true ->
           System.put_env(k, v)
@@ -325,11 +395,15 @@ defmodule Nerves.Env do
       platform.bootstrap(pkg)
     end
 
-    # Bootstrap all other packahes who define a platform
-    Nerves.Env.packages()
-    |> Enum.reject(&(&1 == Nerves.Env.toolchain()))
-    |> Enum.reject(&(&1 == Nerves.Env.system()))
-    |> Enum.reject(&(&1.platform == nil))
+    # Export nerves package env variables
+    Enum.each(packages, &export_package_env/1)
+
+    # Bootstrap all other packages who define a platform
+    toolchain_package = Nerves.Env.toolchain()
+    system_package = Nerves.Env.system()
+
+    packages
+    |> Enum.reject(&(&1 == toolchain_package or &1 == system_package or &1.platform == nil))
     |> Enum.each(fn
       %{platform: platform} = pkg ->
         platform.bootstrap(pkg)
@@ -342,29 +416,75 @@ defmodule Nerves.Env do
   end
 
   @doc false
-  def toolchain_path do
+  @spec toolchain_path() :: String.t() | nil
+  def toolchain_path() do
     case Nerves.Env.toolchain() do
       nil ->
         nil
 
       toolchain ->
-        Nerves.Artifact.dir(toolchain) || Nerves.Artifact.build_path(toolchain)
+        Nerves.Artifact.dir(toolchain)
     end
   end
 
   @doc false
-  def system_path do
+  @spec system_path() :: String.t() | nil
+  def system_path() do
     case Nerves.Env.system() do
       nil ->
         nil
 
       system ->
-        Nerves.Artifact.dir(system) || Nerves.Artifact.build_path(system)
+        Nerves.Artifact.dir(system)
     end
   end
 
   @doc false
-  defp load_packages do
+  @spec source_date_epoch() :: {:ok, String.t() | nil} | {:error, String.t()}
+  def source_date_epoch() do
+    (System.get_env("SOURCE_DATE_EPOCH") || Application.get_env(:nerves, :source_date_epoch))
+    |> validate_source_date_epoch()
+  end
+
+  @spec export_package_env(Package.t()) :: :ok
+  def export_package_env(%Package{env: env}) do
+    env
+    |> process_target_gcc_flags()
+    |> System.put_env()
+  end
+
+  defp process_target_gcc_flags(%{"TARGET_GCC_FLAGS" => flags} = env) do
+    env
+    |> Map.put("CFLAGS", flags <> " " <> System.get_env("CFLAGS", ""))
+    |> Map.put("CXXFLAGS", flags <> " " <> System.get_env("CXXFLAGS", ""))
+  end
+
+  defp process_target_gcc_flags(env), do: env
+
+  defp set_source_date_epoch() do
+    case source_date_epoch() do
+      {:ok, nil} -> :ok
+      {:ok, sde} -> System.put_env("SOURCE_DATE_EPOCH", sde)
+      {:error, error} -> Mix.raise(error)
+    end
+  end
+
+  defp validate_source_date_epoch(nil), do: {:ok, nil}
+  defp validate_source_date_epoch(sde) when is_integer(sde), do: {:ok, Integer.to_string(sde)}
+  defp validate_source_date_epoch(""), do: {:error, "SOURCE_DATE_EPOCH cannot be empty"}
+
+  defp validate_source_date_epoch(sde) when is_binary(sde) do
+    case Integer.parse(sde) do
+      {_sde, _rem} ->
+        {:ok, sde}
+
+      :error ->
+        {:error, "SOURCE_DATE_EPOCH should be a positive integer, received: #{inspect(sde)}"}
+    end
+  end
+
+  @doc false
+  defp load_packages() do
     Mix.Project.deps_paths()
     |> Map.put(Mix.Project.config()[:app], File.cwd!())
     |> Enum.filter(&nerves_package?/1)
@@ -374,10 +494,10 @@ defmodule Nerves.Env do
 
   @doc false
   defp validate_packages(packages) do
-    for type <- [:system, :toolchain] do
+    Enum.each([:system, :toolchain], fn type ->
       packages_by_type(type, packages)
       |> validate_one(type)
-    end
+    end)
 
     packages
   end
@@ -388,7 +508,7 @@ defmodule Nerves.Env do
 
     Mix.raise("""
     Your mix project cannot contain more than one #{type} for the target.
-    Your dependancies for the target contian the following #{type}s:
+    Your dependencies for the target contain the following #{type}s:
     #{Enum.join(packages, ~s/ /)}
     """)
   end
@@ -398,15 +518,17 @@ defmodule Nerves.Env do
 
   @doc false
   defp nerves_package?({app, path}) do
-    try do
-      package_config =
-        Package.config(app, path)
-        |> Keyword.get(:nerves_package)
+    package_config =
+      Package.config(app, path)
+      |> Keyword.get(:nerves_package)
 
-      package_config != nil
-    rescue
-      _e ->
-        File.exists?(Package.config_path(path))
-    end
+    package_config != nil
+  rescue
+    _e ->
+      File.exists?(Package.config_path(path))
+  end
+
+  defp mix_config() do
+    Mix.Project.config()
   end
 end

@@ -1,18 +1,24 @@
-defmodule HostTool.Mixfile do
+defmodule HostTool.MixProject do
   use Mix.Project
 
-  def project do
+  def project() do
     [
       app: :host_tool,
       version: "0.1.0",
       elixir: "~> 1.5",
       compilers: Mix.compilers() ++ [:nerves_package],
       nerves_package: nerves_package(),
-      aliases: Nerves.Bootstrap.add_aliases([])
+      deps: deps()
     ]
   end
 
-  defp nerves_package do
+  defp deps() do
+    [
+      {:nerves, path: System.get_env("NERVES_PATH") || "../../../", runtime: false}
+    ]
+  end
+
+  defp nerves_package() do
     [
       type: :host_tool,
       platform: HostTool.Platform,
@@ -21,7 +27,7 @@ defmodule HostTool.Mixfile do
     ]
   end
 
-  defp package_files do
+  defp package_files() do
     [
       "lib",
       "mix.exs",

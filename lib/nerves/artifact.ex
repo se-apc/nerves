@@ -2,34 +2,32 @@ defmodule Nerves.Artifact do
   @moduledoc """
   Package artifacts are the product of compiling a package with a
   specific toolchain.
-
   """
-  alias Nerves.Artifact.{Cache, BuildRunners, Resolvers}
+  alias Nerves.Artifact.{BuildRunners, Cache, Resolvers}
 
-  @base_dir Path.expand("~/.nerves/artifacts")
   @checksum_short 7
+
+  # credo:disable-for-next-line Credo.Check.Readability.Specs
+  def __checksum_short_length__(), do: @checksum_short
 
   @doc """
   Builds the package and produces an  See Nerves.Artifact
   for more information.
   """
-  @spec build(Nerves.Package.t(), Nerves.Package.t()) :: :ok
+  @spec build(Nerves.Package.t(), Nerves.Package.t()) :: :ok | {:error, File.posix()}
   def build(pkg, toolchain) do
-    case pkg.build_runner do
-      {build_runner, opts} ->
-        case build_runner.build(pkg, toolchain, opts) do
-          {:ok, path} ->
-            Cache.put(pkg, path)
-
-          {:error, error} ->
-            Mix.raise("""
-            Nerves encountered an error while constructing the artifact
-            #{error}
-            """)
-        end
-
+    with {build_runner, opts} <- pkg.build_runner,
+         {:ok, path} <- build_runner.build(pkg, toolchain, opts) do
+      Cache.put(pkg, path)
+    else
       :noop ->
         :ok
+
+      {:error, error} ->
+        Mix.raise("""
+        Nerves encountered an error while constructing the artifact
+        #{if String.valid?(error), do: error, else: inspect(error)}
+        """)
     end
   end
 
@@ -37,6 +35,7 @@ defmodule Nerves.Artifact do
   Produces an archive of the package artifact which can be fetched when
   calling `nerves.artifact.get`.
   """
+  @spec archive(Nerves.Package.t(), Nerves.Package.t(), keyword()) :: {:ok, String.t()}
   def archive(%{app: app, build_runner: nil}, _toolchain, _opts) do
     Mix.raise("""
     #{inspect(app)} does not declare a build_runner and therefore cannot
@@ -48,27 +47,21 @@ defmodule Nerves.Artifact do
     Mix.shell().info("Creating Artifact Archive")
     opts = default_archive_opts(pkg, opts)
 
-    case pkg.build_runner do
-      {build_runner, _opts} ->
-        Code.ensure_compiled(pkg.platform)
-        {:ok, archive_path} = build_runner.archive(pkg, toolchain, opts)
-        archive_path = Path.expand(archive_path)
+    {build_runner, _opts} = pkg.build_runner
+    _ = Code.ensure_compiled(pkg.platform)
+    {:ok, archive_path} = build_runner.archive(pkg, toolchain, opts)
+    archive_path = Path.expand(archive_path)
 
-        path =
-          opts[:path]
-          |> Path.expand()
-          |> Path.join(download_name(pkg) <> ext(pkg))
+    path =
+      opts[:path]
+      |> Path.expand()
+      |> Path.join(download_name(pkg) <> ext(pkg))
 
-        if path != archive_path do
-          File.cp!(archive_path, path)
-        end
-
-        {:ok, archive_path}
-
-      _ ->
-        Mix.shell().info("No build_runner specified for #{pkg.app}")
-        :noop
+    if path != archive_path do
+      File.cp!(archive_path, path)
     end
+
+    {:ok, archive_path}
   end
 
   @doc """
@@ -84,7 +77,7 @@ defmodule Nerves.Artifact do
 
       _ ->
         Mix.shell().info("No build_runner specified for #{pkg.app}")
-        :noop
+        {:error, :no_build_runner}
     end
   end
 
@@ -111,49 +104,33 @@ defmodule Nerves.Artifact do
   @doc """
   Get the artifact download name
   """
-  @spec download_name(Nerves.Package.t()) :: String.t()
+  @spec download_name(Nerves.Package.t(), checksum_short: non_neg_integer()) :: String.t()
   def download_name(pkg, opts \\ []) do
     checksum_short = opts[:checksum_short] || @checksum_short
     "#{pkg.app}-#{host_tuple(pkg)}-#{pkg.version}-#{checksum(pkg, short: checksum_short)}"
   end
 
-  def parse_download_name(name) when is_binary(name) do
-    name = Regex.run(~r/(.*)-([^-]*)-(.*)-([^-]*)/, name)
-
-    case name do
-      [_, app, host_tuple, version, checksum] ->
-        {:ok,
-         %{
-           app: app,
-           host_tuple: host_tuple,
-           checksum: checksum,
-           version: version
-         }}
-
-      _ ->
-        {:error, "Unable to parse artifact name #{name}"}
-    end
-  end
-
   @doc """
   Get the base dir for where an artifact for a package should be stored.
 
-  The base dir for an artifact will point
-  to the NERVES_ARTIFACTS_DIR or if undefined, `~/.nerves/artifacts`
+  The directory for artifacts will be found in the directory returned
+  by `Nerves.Env.data_dir/0` (i.e. `"#{Nerves.Env.data_dir()}/artifacts/"`).
+  This location can be overriden by the environment variable `NERVES_ARTIFACTS_DIR`.
   """
   @spec base_dir() :: String.t()
   def base_dir() do
-    System.get_env("NERVES_ARTIFACTS_DIR") || @base_dir
+    case System.get_env("NERVES_ARTIFACTS_DIR") do
+      nil -> Path.join(Nerves.Env.data_dir(), "artifacts")
+      dir -> dir
+    end
   end
 
   @doc """
   Get the path to where the artifact is built
   """
+  @spec build_path(Nerves.Package.t()) :: binary
   def build_path(pkg) do
-    pkg.path
-    |> Path.join(".nerves")
-    |> Path.join("artifacts")
-    |> Path.join(name(pkg))
+    Path.join([pkg.path, ".nerves", "artifacts", name(pkg)])
   end
 
   @doc """
@@ -161,6 +138,7 @@ defmodule Nerves.Artifact do
   This path is typically a location within build_path, but can be
   vary on different build platforms.
   """
+  @spec build_path_link(Nerves.Package.t()) :: Path.t()
   def build_path_link(pkg) do
     case pkg.platform do
       platform when is_atom(platform) ->
@@ -179,14 +157,13 @@ defmodule Nerves.Artifact do
   Produce a base16 encoded checksum for the package from the list of files
   and expanded folders listed in the checksum config key.
   """
-  @spec checksum(Nerves.Package.t()) :: String.t()
+  @spec checksum(Nerves.Package.t(), short: non_neg_integer()) :: String.t()
   def checksum(pkg, opts \\ []) do
     blob =
       (pkg.config[:checksum] || [])
       |> expand_paths(pkg.path)
       |> Enum.map(&File.read!/1)
       |> Enum.map(&:crypto.hash(:sha256, &1))
-      |> Enum.join()
 
     checksum =
       :crypto.hash(:sha256, blob)
@@ -249,27 +226,33 @@ defmodule Nerves.Artifact do
 
   Artifact sites can pass options as a third parameter for adding headers
   or query string parameters. For example, if you are trying to resolve
-  artifacts hosted using `:github_releases` in a private repo,
-  you can pass a personal access token into the sites helper.
+  artifacts hosted in a private Github repo, use `:github_api` and
+  pass a user, tag, and personal access token into the sites helper:
 
-    {:github_releases, "my-organization/my_repository", query_params: %{"access_token" => System.get_env("GITHUB_ACCESS_TOKEN")}}
+  ```elixir
+  {:github_api, "owner/repo", username: "skroob", token: "1234567", tag: "v0.1.0"}
+  ```
+
+  Or pass query parameters for the URL:
+
+  ```elixir
+  {:prefix, "https://my-organization.com", query_params: %{"id" => "1234567", "token" => "abcd"}}
+  ```
 
   You can also use this to add an authorization header for files behind basic auth.
 
-    {:prefix, "http://my-organization.com/", headers: [{"Authorization", "Basic " <> System.get_env("BASIC_AUTH")}}]}
-
+  ```elixir
+  {:prefix, "http://my-organization.com/", headers: [{"Authorization", "Basic " <> System.get_env("BASIC_AUTH")}}]}
+  ```
   """
+  @spec expand_sites(Nerves.Package.t()) :: [
+          {Resolvers.URI | Resolvers.GithubAPI, {Path.t(), Keyword.t()}}
+        ]
   def expand_sites(pkg) do
     case pkg.config[:artifact_url] do
       nil ->
-        # |> Enum.map(&expand_site(&1, pkg))
-        # Check entire checksum length
-        # This code can be removed sometime after nerves 1.0
-        # and instead use the commented line above
         Keyword.get(pkg.config, :artifact_sites, [])
-        |> Enum.reduce([], fn site, urls ->
-          [expand_site(site, pkg), expand_site(site, pkg, checksum_short: 64) | urls]
-        end)
+        |> Enum.map(&expand_site(&1, pkg))
 
       urls when is_list(urls) ->
         # artifact_url is deprecated and this code can be removed sometime following
@@ -291,6 +274,7 @@ defmodule Nerves.Artifact do
   @doc """
   Get the path to where the artifact archive is downloaded to.
   """
+  @spec download_path(Nerves.Package.t()) :: String.t()
   def download_path(pkg) do
     name = download_name(pkg) <> ext(pkg)
 
@@ -304,13 +288,22 @@ defmodule Nerves.Artifact do
   on a host for a target. Other packages are host agnostic for now. They are
   marked as `portable`.
   """
+  @spec host_tuple(Nerves.Package.t()) :: String.t()
   def host_tuple(%{type: :system}) do
     "portable"
   end
 
   def host_tuple(_pkg) do
-    Nerves.Env.host_os() <> "_" <> Nerves.Env.host_arch()
+    (Nerves.Env.host_os() <> "_" <> Nerves.Env.host_arch())
+    |> normalize_osx()
   end
+
+  # Workaround for OTP 24 returning 'aarch64-apple-darwin20.4.0'
+  # and OTP 23 and earlier returning 'arm-apple-darwin20.4.0'.
+  #
+  # The current Nerves tooling naming uses "arm".
+  defp normalize_osx("darwin_aarch64"), do: "darwin_arm"
+  defp normalize_osx(other), do: other
 
   @doc """
   Determines the extension for an artifact based off its type.
@@ -320,32 +313,28 @@ defmodule Nerves.Artifact do
   def ext(%{type: :toolchain}), do: ".tar.xz"
   def ext(_), do: ".tar.gz"
 
+  @spec build_runner(keyword()) :: {module(), keyword()}
   def build_runner(config) do
-    case config[:nerves_package][:build_runner] do
-      nil ->
-        build_runner_type(config[:nerves_package][:type])
+    opts = config[:nerves_package][:build_runner_opts] || []
 
-      build_runner ->
-        build_runner_opts = config[:nerves_package][:build_runner_opts] || []
-        {build_runner, build_runner_opts}
-    end
+    mod =
+      config[:nerves_package][:build_runner] || build_runner_type(config[:nerves_package][:type])
+
+    {mod, opts}
   end
 
   defp build_runner_type(:system_platform), do: nil
   defp build_runner_type(:toolchain_platform), do: nil
-  defp build_runner_type(:toolchain), do: {BuildRunners.Local, []}
+  defp build_runner_type(:toolchain), do: BuildRunners.Local
 
   defp build_runner_type(:system) do
-    mod =
-      case :os.type() do
-        {_, :linux} -> BuildRunners.Local
-        _ -> BuildRunners.Docker
-      end
-
-    {mod, []}
+    case :os.type() do
+      {_, :linux} -> BuildRunners.Local
+      _ -> BuildRunners.Docker
+    end
   end
 
-  defp build_runner_type(_), do: {BuildRunners.Local, []}
+  defp build_runner_type(_), do: BuildRunners.Local
 
   defp expand_paths(paths, dir) do
     paths
@@ -376,11 +365,35 @@ defmodule Nerves.Artifact do
   defp expand_site(_, _, _ \\ [])
 
   defp expand_site({:github_releases, org_proj}, pkg, opts) do
-    expand_site(
-      {:prefix, "https://github.com/#{org_proj}/releases/download/v#{pkg.version}/"},
-      pkg,
+    opts =
       opts
-    )
+      |> Keyword.put(:artifact_name, download_name(pkg, opts) <> ext(pkg))
+      |> Keyword.put(:public?, true)
+      |> update_in([:tag], &(&1 || "v#{pkg.version}"))
+
+    {Resolvers.GithubAPI, {org_proj, opts}}
+  end
+
+  defp expand_site({:gitea_releases, repo_uri}, pkg, opts) when is_binary(repo_uri),
+    do: expand_site({:gitea_releases, URI.parse(repo_uri)}, pkg, opts)
+
+  defp expand_site({:gitea_releases, repo_uri}, pkg, opts)
+       when is_nil(repo_uri.scheme) and is_nil(repo_uri.host),
+       do: expand_site({:gitea_releases, URI.parse("https://#{repo_uri.path}")}, pkg, opts)
+
+  defp expand_site({:gitea_releases, repo_uri}, pkg, opts) do
+    repo_uri = URI.parse(repo_uri)
+    base_url = %{repo_uri | path: "/"} |> to_string()
+    org_proj = repo_uri.path |> String.trim_leading("/")
+
+    opts =
+      opts
+      |> Keyword.put(:base_url, base_url)
+      |> Keyword.put(:artifact_name, download_name(pkg, opts) <> ext(pkg))
+      |> Keyword.put(:public?, true)
+      |> update_in([:tag], &(&1 || "v#{pkg.version}"))
+
+    {Resolvers.GiteaAPI, {org_proj, opts}}
   end
 
   defp expand_site({:prefix, url}, pkg, opts) do
@@ -399,6 +412,13 @@ defmodule Nerves.Artifact do
     {Resolvers.GithubAPI, {org_proj, resolver_opts}}
   end
 
+  defp expand_site({:gitea_api, org_proj, resolver_opts}, pkg, opts) do
+    resolver_opts =
+      Keyword.put(resolver_opts, :artifact_name, download_name(pkg, opts) <> ext(pkg))
+
+    {Resolvers.GiteaAPI, {org_proj, resolver_opts}}
+  end
+
   defp expand_site(site, _pkg, _opts),
     do:
       Mix.raise("""
@@ -408,6 +428,8 @@ defmodule Nerves.Artifact do
       Supported artifact sites:
       {:github_releases, "owner/repo"}
       {:github_api, "owner/repo", username: "skroob", token: "1234567", tag: "v0.1.0"}
+      {:gitea_releases, "host/owner/repo"},
+      {:gitea_api, "owner/repo", base_url: "https://gitea.com", token: "123456", tag: "v0.1.0"}
       {:prefix, "http://myserver.com/artifacts"}
       {:prefix, "http://myserver.com/artifacts", headers: [{"Authorization", "Basic: 1234567=="}]}
       {:prefix, "http://myserver.com/artifacts", query_params: %{"id" => "1234567"}}

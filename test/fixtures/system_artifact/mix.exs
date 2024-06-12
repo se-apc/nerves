@@ -1,22 +1,28 @@
-defmodule SystemArtifact.Mixfile do
+defmodule SystemArtifact.MixProject do
   use Mix.Project
 
   @version Path.join(__DIR__, "VERSION")
            |> File.read!()
            |> String.trim()
 
-  def project do
+  def project() do
     [
-      app: :system,
+      app: :system_artifact,
       version: @version,
       compilers: Mix.compilers() ++ [:nerves_package],
       nerves_package: nerves_package(),
-      deps: deps(),
-      aliases: Nerves.Bootstrap.add_aliases([])
+      aliases: [loadconfig: [&bootstrap/1]],
+      deps: deps()
     ]
   end
 
-  defp nerves_package do
+  defp bootstrap(args) do
+    Mix.target(:target)
+    Application.ensure_all_started(:nerves_bootstrap)
+    Mix.Task.run("loadconfig", args)
+  end
+
+  defp nerves_package() do
     [
       type: :system_artifact,
       build_runner: Nerves.Artifact.BuildRunners.Local,
@@ -31,14 +37,14 @@ defmodule SystemArtifact.Mixfile do
     ]
   end
 
-  defp deps do
+  defp deps() do
     [
-      # {:nerves, path: System.get_env("NERVES_PATH") || "../../../"},
-      {:system_platform, path: "../system_platform"}
+      {:nerves, path: System.get_env("NERVES_PATH") || "../../../", runtime: false},
+      {:system_platform, path: "../system_platform", runtime: false}
     ]
   end
 
-  defp package_files do
+  defp package_files() do
     [
       "mix.exs",
       "nerves_defconfig",

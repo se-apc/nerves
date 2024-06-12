@@ -1,8 +1,10 @@
 defmodule Nerves.ArtifactTest do
-  use NervesTest.Case, async: false
+  use NervesTest.Case
 
-  alias Nerves.Artifact.BuildRunners, as: P
   alias Nerves.Artifact
+  alias Nerves.Artifact.BuildRunners, as: P
+  alias Nerves.Artifact.Resolvers.GiteaAPI
+  alias Nerves.Artifact.Resolvers.GithubAPI
   alias Nerves.Env
 
   test "Fetch build_runner overrides" do
@@ -13,6 +15,17 @@ defmodule Nerves.ArtifactTest do
 
       Env.start()
       assert Env.package(:package_build_runner_override).build_runner == {P.Docker, []}
+    end)
+  end
+
+  test "build_runner_opts overrides" do
+    in_fixture("package_build_runner_opts", fn ->
+      File.cwd!()
+      |> Path.join("mix.exs")
+      |> Code.require_file()
+
+      Env.start()
+      assert {_, [make_args: []]} = Env.package(:package_build_runner_opts).build_runner
     end)
   end
 
@@ -58,14 +71,6 @@ defmodule Nerves.ArtifactTest do
     end)
   end
 
-  test "parse artifact download name from regex" do
-    {:ok, values} = Artifact.parse_download_name("package-name-portable-0.12.2-ABCDEF1")
-    assert String.equivalent?(values.app, "package-name")
-    assert String.equivalent?(values.host_tuple, "portable")
-    assert String.equivalent?(values.version, "0.12.2")
-    assert String.equivalent?(values.checksum, "ABCDEF1")
-  end
-
   test "artifact_urls can only be binaries" do
     assert_raise Mix.Error, fn ->
       Artifact.expand_sites(%{config: [artifact_url: [{:broken}]]})
@@ -89,21 +94,36 @@ defmodule Nerves.ArtifactTest do
     end)
   end
 
-  test "artifact sites are expanded" do
+  test "GitHub artifact sites are expanded" do
+    repo = "nerves-project/system"
+
     pkg = %{
       app: "my_system",
       version: "1.0.0",
       path: "./",
-      config: [artifact_sites: [{:github_releases, "nerves-project/system"}]]
+      config: [artifact_sites: [{:github_releases, repo}]]
     }
 
-    checksum_long = Nerves.Artifact.checksum(pkg)
     checksum_short = Nerves.Artifact.checksum(pkg, short: 7)
 
-    [{_, {short, _}}, {_, {long, _}}] = Artifact.expand_sites(pkg)
+    [{GithubAPI, {^repo, opts}}] = Artifact.expand_sites(pkg)
+    assert String.ends_with?(opts[:artifact_name], checksum_short <> Artifact.ext(pkg))
+  end
 
-    assert String.ends_with?(short, checksum_short <> Artifact.ext(pkg))
-    assert String.ends_with?(long, checksum_long <> Artifact.ext(pkg))
+  test "Gitea artifact sites are expanded" do
+    repo = "gitea.com/jmshrtn/nerves_artifact_test"
+
+    pkg = %{
+      app: "my_system",
+      version: "1.0.0",
+      path: "./",
+      config: [artifact_sites: [{:gitea_releases, repo}]]
+    }
+
+    checksum_short = Nerves.Artifact.checksum(pkg, short: 7)
+
+    assert [{GiteaAPI, {"jmshrtn/nerves_artifact_test", opts}}] = Artifact.expand_sites(pkg)
+    assert String.ends_with?(opts[:artifact_name], checksum_short <> Artifact.ext(pkg))
   end
 
   test "precompile will raise if packages are stale and not fetched" do
@@ -119,19 +139,17 @@ defmodule Nerves.ArtifactTest do
     end)
   end
 
-  test "parent projects are omitted from precompile check" do
-    in_fixture("system_artifact", fn ->
-      packages = ~w(toolchain system_platform)
+  describe "artifact base_path" do
+    test "XDG_DATA_HOME" do
+      System.delete_env("NERVES_ARTIFACTS_DIR")
+      System.put_env("XDG_DATA_HOME", "xdg_data_home")
+      assert "xdg_data_home/nerves/artifacts" = Nerves.Artifact.base_dir()
+    end
 
-      File.cwd!()
-      |> Path.join("mix.exs")
-      |> Code.require_file()
-
-      _ = load_env(packages)
-
-      Mix.Tasks.Deps.Get.run([])
-      Mix.Tasks.Nerves.Env.run([])
-      assert :ok = Mix.Tasks.Nerves.Precompile.run([])
-    end)
+    test "falls back to $HOME/.nerves" do
+      System.delete_env("XDG_DATA_HOME")
+      System.delete_env("NERVES_ARTIFACTS_DIR")
+      assert Path.expand("~/.nerves/artifacts") == Nerves.Artifact.base_dir()
+    end
   end
 end

@@ -7,9 +7,12 @@ defmodule Nerves.Package do
   [system documentation](https://hexdocs.pm/nerves/systems.html#package-configuration)
   """
 
+  alias Nerves.Artifact
+
   defstruct app: nil,
             path: nil,
             dep: nil,
+            env: [],
             type: nil,
             version: nil,
             platform: nil,
@@ -18,23 +21,23 @@ defmodule Nerves.Package do
             dep_opts: [],
             config: []
 
-  alias __MODULE__
-  alias Nerves.Artifact
-
   @type t :: %__MODULE__{
           app: atom,
           path: binary,
+          env: %{String.t() => String.t()},
           type:
             :system
             | :package
-            | :toolchain,
+            | :toolchain
+            | :system_platform
+            | :toolchain_platform,
           dep:
             :project
             | :path
             | :hex
             | :git,
           platform: atom,
-          build_runner: atom,
+          build_runner: {module(), Keyword.t()},
           compilers: [atom],
           dep_opts: Keyword.t(),
           version: Version.t(),
@@ -53,6 +56,7 @@ defmodule Nerves.Package do
     version = config[:version]
     type = config[:nerves_package][:type]
     compilers = config[:compilers] || Mix.compilers()
+    env = Map.new(config[:nerves_package][:env] || %{})
 
     unless type do
       Mix.shell().error(
@@ -68,14 +72,15 @@ defmodule Nerves.Package do
     config = Enum.reject(config[:nerves_package], fn {k, _v} -> k in @required end)
 
     dep_opts =
-      mix_dep_load(env: Mix.env())
+      load_env_deps()
       |> Enum.find(%{}, &(&1.app == app))
       |> Map.get(:opts, [])
       |> Keyword.get(:nerves, [])
 
-    %Package{
+    %__MODULE__{
       app: app,
       type: type,
+      env: env,
       platform: platform,
       build_runner: build_runner,
       compilers: compilers,
@@ -87,11 +92,22 @@ defmodule Nerves.Package do
     }
   end
 
+  if Version.match?(System.version(), ">= 1.16.0") do
+    defp load_env_deps() do
+      Mix.Dep.Converger.converge(env: Mix.env())
+    end
+  else
+    defp load_env_deps() do
+      # deprecated in Elixir >= 1.16.0
+      Mix.Dep.load_on_environment(env: Mix.env())
+    end
+  end
+
   @doc """
   Starts an interactive shell with the working directory set
   to the package path
   """
-  @spec shell(Nerves.Package.t()) :: :ok
+  @spec shell(Nerves.Package.t() | nil) :: :ok
   def shell(nil) do
     Mix.raise("Package is not loaded in your Nerves Environment.")
   end
@@ -112,6 +128,10 @@ defmodule Nerves.Package do
     Path.join(path, @package_config)
   end
 
+  @doc """
+  Get Mix.Project config for an application
+  """
+  @spec config(Application.app(), Path.t()) :: Keyword.t()
   def config(app, path) do
     project_config =
       if app == Mix.Project.config()[:app] do
@@ -126,49 +146,18 @@ defmodule Nerves.Package do
       case project_config[:nerves_package] do
         nil ->
           # TODO: Deprecated. Clean up after 1.0
-          load_nerves_config(path)
-          config = Application.get_env(app, :nerves_env)
+          Mix.shell().raise("""
+          Nerves configuration has moved from nerves.exs to mix.exs.
 
-          Mix.shell().error("""
-          Nerves config has moved from nerves.exs to mix.exs.
-
-          For Example:
-
-          ## nerves.exs
-            config #{project_config[:app]}, :nerves_env,
-              type: #{config[:type]}
-              # ...
-
-          ## mix.exs
-
-            def project do
-              [app: #{project_config[:app]},
-               version: #{project_config[:version]},
-               nerves_package: nerves_package()
-               # ...
-              ]
-            end
-
-            def nerves_package do
-              [type: #{config[:type]}
-              # ...
-              ]
-            end
+          Use `mix nerves.new` to regenerate your project's mix.exs and merge
+          your code into the new project.
           """)
-
-          config
 
         nerves_package ->
           nerves_package
       end
 
     Keyword.put(project_config, :nerves_package, nerves_package)
-  end
-
-  defp load_nerves_config(path) do
-    config_path(path)
-    |> mix_config_eval!()
-    |> Mix.Config.persist()
   end
 
   defp dep_type(pkg) do
@@ -190,31 +179,5 @@ defmodule Nerves.Package do
           :path
         end
     end
-  end
-
-  # Elixir 1.7 deprecated Mix.Config.Read!/1
-  # Use Mix.Config.eval!/2 if available
-  defp mix_config_eval!(config) do
-    fun =
-      if :erlang.function_exported(Mix.Config, :eval!, 2) do
-        :eval!
-      else
-        :read!
-      end
-
-    apply(Mix.Config, fun, [config])
-  end
-
-  # Elixir 1.7 deprecated Mix.Dep.loaded/1
-  # Use Mix.Dep.load_on_environment/1 if available
-  defp mix_dep_load(opts) do
-    fun =
-      if :erlang.function_exported(Mix.Dep, :load_on_environment, 1) do
-        :load_on_environment
-      else
-        :loaded
-      end
-
-    apply(Mix.Dep, fun, [opts])
   end
 end

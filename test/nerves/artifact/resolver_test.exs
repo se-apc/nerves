@@ -1,5 +1,5 @@
 defmodule Nerves.Artifact.ResolverTest do
-  use NervesTest.Case, async: true
+  use NervesTest.Case
 
   alias Nerves.Artifact
 
@@ -29,6 +29,22 @@ defmodule Nerves.Artifact.ResolverTest do
 
       sites = [
         {:prefix, "http://127.0.0.1:4000/token_auth/", query_params: %{"id" => 1234}}
+      ]
+
+      pkg = %{app: :example, version: "0.1.0", path: "./", config: [artifact_sites: sites]}
+
+      resolvers = Artifact.expand_sites(pkg)
+      assert {:ok, _path} = Artifact.Resolver.get(resolvers, pkg)
+    end)
+  end
+
+  test "artifact resolver can download using query param token auth with reserved chars" do
+    in_fixture("resolver", fn ->
+      set_artifact_path()
+
+      sites = [
+        {:prefix, "http://127.0.0.1:4000/token_auth/",
+         query_params: %{"id" => ":/?#[]@!$&'()&+,;="}}
       ]
 
       pkg = %{app: :example, version: "0.1.0", path: "./", config: [artifact_sites: sites]}
@@ -87,45 +103,6 @@ defmodule Nerves.Artifact.ResolverTest do
     end)
   end
 
-  test "github api validates required fields" do
-    in_fixture("resolver", fn ->
-      set_artifact_path()
-
-      sites = [
-        {:github_api, "my_org/my_repo", username: "my_user"}
-      ]
-
-      pkg = %{app: :example, version: "0.1.0", path: "./", config: [artifact_sites: sites]}
-      resolvers = Artifact.expand_sites(pkg)
-
-      assert_raise Mix.Error, fn ->
-        Artifact.Resolver.get(resolvers, pkg)
-      end
-
-      sites = [
-        {:github_api, "my_org/my_repo", token: "my_token"}
-      ]
-
-      pkg = %{app: :example, version: "0.1.0", path: "./", config: [artifact_sites: sites]}
-      resolvers = Artifact.expand_sites(pkg)
-
-      assert_raise Mix.Error, fn ->
-        Artifact.Resolver.get(resolvers, pkg)
-      end
-
-      sites = [
-        {:github_api, "my_org/my_repo", username: "my_username", token: "my_token"}
-      ]
-
-      pkg = %{app: :example, version: "0.1.0", path: "./", config: [artifact_sites: sites]}
-      resolvers = Artifact.expand_sites(pkg)
-
-      assert_raise Mix.Error, fn ->
-        Artifact.Resolver.get(resolvers, pkg)
-      end
-    end)
-  end
-
   test "download validations will raise" do
     in_fixture("resolver", fn ->
       set_artifact_path()
@@ -172,8 +149,8 @@ defmodule Nerves.Artifact.ResolverTest do
       resolvers = Artifact.expand_sites(pkg)
 
       assert {:error, _reason} = Artifact.Resolver.get(resolvers, pkg)
-      output = "\e[33m     Status 404 Not Found\e[0m"
-      assert_received({:mix_shell, :info, [^output]})
+      output = "     Status 404 Not Found"
+      assert_receive {:mix_shell, :info, [^output]}
     end)
   end
 

@@ -9,6 +9,7 @@ defmodule Nerves.Utils.WSL do
   Returns a two item tuple where the first item is a command and the second is
   the argument list to run a powershell command as administrator in Windows
   """
+  @spec admin_powershell_command(String.t(), String.t()) :: {String.t(), [String.t()]}
   def admin_powershell_command(command, args) do
     {
       "powershell.exe",
@@ -22,14 +23,17 @@ defmodule Nerves.Utils.WSL do
   @doc """
   Returns true if inside a WSL shell environment
   """
-  @spec running_on_wsl?(String.t()) :: boolean
-  def running_on_wsl?(osrelease_path \\ "/proc/sys/kernel/osrelease") do
-    with true <- File.exists?(osrelease_path),
-         {content, _} <- System.cmd("cat", [osrelease_path]) do
-      Regex.match?(~r/Microsoft/, content)
-    else
-      _ ->
-        false
+  @spec running_on_wsl?() :: boolean
+  def running_on_wsl?() do
+    # Docker Desktop for Windows uses WSL 2 kernel as the back-end
+    # so also check whether the env is Docker
+    Regex.match?(~r/[Mm]icrosoft/, osrelease()) and not File.exists?("/.dockerenv")
+  end
+
+  defp osrelease() do
+    case File.read("/proc/sys/kernel/osrelease") do
+      {:ok, text} -> text
+      _ -> "unknown"
     end
   end
 
@@ -38,6 +42,7 @@ defmodule Nerves.Utils.WSL do
   within WSL, as it runs a powershell command to get the list and writes it to a
   temporary file that WSL can access.
   """
+  @spec get_fwup_devices() :: {Collectable.t(), exit_status :: non_neg_integer()}
   def get_fwup_devices() do
     {win_path, _} = make_file_accessible("fwup_devs.txt", running_on_wsl?(), has_wslpath?())
 
@@ -46,13 +51,13 @@ defmodule Nerves.Utils.WSL do
     powershell_args = "fwup.exe -D | set-content -encoding UTF8 #{win_path}"
 
     with {command, args} <- admin_powershell_command("powershell.exe", powershell_args),
-         {"", 0} <- System.cmd(command, args),
+         {"", 0} <- Nerves.Port.cmd(command, args),
          {:ok, devs} <- File.read(wsl_path) do
       devs =
         Regex.replace(~r/[\x{200B}\x{200C}\x{200D}\x{FEFF}]/u, devs, "")
         |> String.replace("\r", "")
 
-      File.rm(wsl_path)
+      _ = File.rm(wsl_path)
       {devs, 0}
     else
       {:error, :enoent} ->
@@ -76,9 +81,9 @@ defmodule Nerves.Utils.WSL do
   @doc """
   Returns true if the path is accessible in Windows
   """
-  @spec path_accessible_in_windows?(String.t(), boolean) :: boolean
-  def path_accessible_in_windows?(file, _use_wslpath = true) do
-    {_path, exitcode} = System.cmd("wslpath", ["-w", "-a", file], stderr_to_stdout: true)
+  @spec path_accessible_in_windows?(String.t(), boolean()) :: boolean()
+  def path_accessible_in_windows?(file, true = _use_wslpath) do
+    {_path, exitcode} = Nerves.Port.cmd("wslpath", ["-w", "-a", file], stderr_to_stdout: true)
     exitcode == 0
   end
 
@@ -91,17 +96,23 @@ defmodule Nerves.Utils.WSL do
   """
   @spec get_temp_file_location(String.t()) :: String.t()
   def get_temp_file_location(file) do
-    {win_path, 0} = System.cmd("cmd.exe", ["/c", "echo %TEMP%"])
+    {win_path, 0} = Nerves.Port.cmd("cmd.exe", ["/c", "echo %TEMP%"])
     "#{String.trim(win_path)}\\#{Path.basename(file)}"
   end
 
   @doc """
-  Returns true when the path starts with a drive letter, colon and either single backslash or double backslash
+  Returns true when the path matches various kinds of Windows-specific paths, like:
+
+  ```
+  C:\\
+  C:\\projects
+  \\\\myserver\\sharename\\
+  \\\\wsl$\\Ubuntu-18.04\\home\\username\\my_project\\
+  ```
   """
   @spec valid_windows_path?(String.t()) :: boolean
   def valid_windows_path?(path) do
-    # Match <drive_letter>: then \ or \\ and then one or more characters except line breaks
-    Regex.match?(~r/(^\w{1}:)(\\\\|\\)(.+)/, path)
+    Regex.match?(~r/^(\w:|\\\\[\w.$-]+)\\/, path)
   end
 
   @doc """
@@ -124,8 +135,8 @@ defmodule Nerves.Utils.WSL do
       "/mnt/c/Users/username/src/nerves/mix.exs"}
 
   """
-  @spec get_wsl_paths(String.t(), boolean) :: {String.t() | nil, String.t() | nil}
-  def get_wsl_paths(file, _use_wslpath = true) do
+  @spec get_wsl_paths(String.t(), boolean()) :: {String.t() | nil, String.t() | nil}
+  def get_wsl_paths(file, true = _use_wslpath) do
     # Use wslpath, available from Windows 10 1803
     # https://superuser.com/questions/1113385/convert-windows-path-for-windows-ubuntu-bash
     # -a    force result to absolute path format
@@ -203,26 +214,23 @@ defmodule Nerves.Utils.WSL do
   valid path an "Invalid argument" error is returned. This function
   catches this error and returns the valid path.
   """
-  @spec execute_wslpath(String.t(), list) :: String.t() | nil
+  @spec execute_wslpath(String.t(), [String.t()]) :: String.t() | nil
   def execute_wslpath(file, arguments) do
-    with {path, 0} <- System.cmd("wslpath", arguments ++ [file], stderr_to_stdout: true) do
-      String.trim(path)
-    else
+    case Nerves.Port.cmd("wslpath", arguments ++ [file], stderr_to_stdout: true) do
+      {path, 0} ->
+        String.trim(path)
+
       {error, _} ->
-        if String.contains?(error, "Invalid argument") do
-          Path.expand(file)
-        else
-          nil
-        end
+        if String.contains?(error, "Invalid argument"), do: Path.expand(file)
     end
   end
 
   @doc """
   Returns an item tuple with the Windows accessible path and whether the path is a temporary location or original location
   """
-  @spec make_file_accessible(String.t(), boolean, boolean) ::
+  @spec make_file_accessible(String.t(), boolean(), boolean()) ::
           {String.t(), :original_location} | {String.t(), :temporary_location}
-  def make_file_accessible(file, _is_wsl = true, has_wslpath) do
+  def make_file_accessible(file, true = _is_wsl, has_wslpath) do
     if path_accessible_in_windows?(file, has_wslpath) do
       {win_path, _wsl_path} = get_wsl_paths(file, has_wslpath)
       {win_path, :original_location}
@@ -230,7 +238,7 @@ defmodule Nerves.Utils.WSL do
       # Create a temporary .fw file that fwup.exe is able to access
       temp_file_location = get_temp_file_location(file)
       {win_path, wsl_path} = get_wsl_paths(temp_file_location, has_wslpath)
-      File.copy(file, wsl_path)
+      _ = File.copy(file, wsl_path)
       {win_path, :temporary_location}
     end
   end

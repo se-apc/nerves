@@ -1,12 +1,14 @@
 defmodule Nerves.Utils.Proxy do
+  @moduledoc false
   # Special thanks to Hex.
 
+  @spec config(String.t()) :: [proxy_auth: {charlist(), charlist()}]
   def config(url) do
     {http_proxy, https_proxy} = setup()
     auth(URI.parse(url), http_proxy, https_proxy)
   end
 
-  defp setup do
+  defp setup() do
     http_proxy = (proxy = System.get_env("HTTP_PROXY")) && set(:http, proxy)
     https_proxy = (proxy = System.get_env("HTTPS_PROXY")) && set(:https, proxy)
     {http_proxy, https_proxy}
@@ -15,10 +17,11 @@ defmodule Nerves.Utils.Proxy do
   defp set(scheme, proxy) do
     uri = URI.parse(proxy)
 
-    if uri.host && uri.port do
-      host = String.to_charlist(uri.host)
-      :httpc.set_options([{scheme(scheme), {{host, uri.port}, []}}], :nerves)
-    end
+    _ =
+      if uri.host && uri.port do
+        host = String.to_charlist(uri.host)
+        :httpc.set_options([{scheme(scheme), {{host, uri.port}, []}}], :nerves)
+      end
 
     uri
   end

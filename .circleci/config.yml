@@ -1,17 +1,96 @@
-# Elixir CircleCI 2.0 configuration file
-#
-# Check https://circleci.com/docs/2.0/language-elixir/ for more details
-version: 2
+version: 2.1
+
+latest: &latest
+  pattern: "^1.16.*-erlang-26.*$"
+
+tags: &tags
+  [
+    1.16.0-erlang-26.2.1-alpine-3.18.4,
+    1.15.7-erlang-26.2.1-alpine-3.18.4,
+    1.14.5-erlang-25.3.2-alpine-3.18.0,
+    1.13.4-erlang-24.3.4-alpine-3.15.3,
+    1.12.3-erlang-24.3.4-alpine-3.15.3,
+    1.11.4-erlang-23.3.4.13-alpine-3.15.3
+  ]
+
 jobs:
-  build:
+  build-test:
+    parameters:
+      tag:
+        type: string
     docker:
-      - image: circleci/elixir:1.7.3
+      - image: hexpm/elixir:<< parameters.tag >>
     working_directory: ~/repo
     environment:
-      MIX_ENV: test
+      LC_ALL: C.UTF-8
     steps:
+      - run:
+          name: Install system dependencies
+          command: apk add --no-cache build-base procps
       - checkout
-      - run: mix local.hex --force && mix local.rebar --force
-      - run: mix deps.get --only test
-      - run: mix test
-      - run: mix format --check-formatted
+      - run:
+          name: Install hex, rebar, and nerves_bootstrap
+          command: |
+            mix local.hex --force
+            mix local.rebar --force
+            mix archive.install hex nerves_bootstrap --force
+      - restore_cache:
+          keys:
+            - v1-mix-cache-<< parameters.tag >>-{{ checksum "mix.lock" }}
+      - run: mix deps.get
+      - when:
+          condition:
+            matches: { <<: *latest, value: << parameters.tag >> }
+          steps:
+            - run: mix format --check-formatted
+            - run: mix deps.unlock --check-unused
+            - run: mix docs
+            - run: mix hex.build
+            - run: mix test || mix test
+            - run: mix credo -a --strict
+            - run: mix dialyzer
+      - when:
+          condition:
+            not:
+              matches: { <<: *latest, value: << parameters.tag >> }
+          steps:
+            - run: mix test --exclude release || mix test --exclude release
+      - save_cache:
+          key: v1-mix-cache-<< parameters.tag >>-{{ checksum "mix.lock" }}
+          paths:
+            - _build
+            - deps
+
+  automerge:
+    docker:
+        - image: alpine:3.18.4
+    steps:
+      - run:
+          name: Install GitHub CLI
+          command: apk add --no-cache build-base github-cli
+      - run:
+          name: Attempt PR automerge
+          command: |
+            author=$(gh pr view "${CIRCLE_PULL_REQUEST}" --json author --jq '.author.login' || true)
+
+            if [ "$author" = "app/dependabot" ]; then
+              gh pr merge "${CIRCLE_PULL_REQUEST}" --auto --rebase || echo "Failed trying to set automerge"
+            else
+              echo "Not a dependabot PR, skipping automerge"
+            fi
+
+workflows:
+  checks:
+    jobs:
+      - build-test:
+          name: << matrix.tag >>
+          matrix:
+            parameters:
+              tag: *tags
+
+      - automerge:
+          requires: *tags
+          context: org-global
+          filters:
+            branches:
+              only: /^dependabot.*/

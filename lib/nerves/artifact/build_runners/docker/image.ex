@@ -1,7 +1,9 @@
 defmodule Nerves.Artifact.BuildRunners.Docker.Image do
-  alias Nerves.Artifact.BuildRunners.Docker
-  import Docker.Utils
+  @moduledoc false
+  import Nerves.Artifact.BuildRunners.Docker.Utils
 
+  @doc false
+  @spec create(Path.t(), String.t()) :: :ok
   def create(dockerfile, tag) do
     cmd = "docker"
     path = Path.dirname(dockerfile)
@@ -18,12 +20,14 @@ defmodule Nerves.Artifact.BuildRunners.Docker.Image do
     end
   end
 
+  @doc false
+  @spec pull(String.t()) :: boolean()
   def pull(tag) do
     shell_info("Trying to pull image")
     cmd = "docker"
     args = ["pull", "#{tag}"]
 
-    case System.cmd(cmd, args, stderr_to_stdout: true) do
+    case Nerves.Port.cmd(cmd, args, stderr_to_stdout: true) do
       {<<"Cannot connect to the Docker daemon", _tail::binary>>, _} ->
         Mix.raise("Nerves Docker build_runner is unable to connect to docker daemon")
 
@@ -35,11 +39,13 @@ defmodule Nerves.Artifact.BuildRunners.Docker.Image do
     end
   end
 
+  @doc false
+  @spec exists?(String.t()) :: boolean()
   def exists?(tag) do
     cmd = "docker"
     args = ["image", "ls", "#{tag}", "-q"]
 
-    case System.cmd(cmd, args, stderr_to_stdout: true) do
+    case Nerves.Port.cmd(cmd, args, stderr_to_stdout: true) do
       {"", _} ->
         false
 

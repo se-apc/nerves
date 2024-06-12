@@ -1,19 +1,38 @@
 defmodule Nerves.Utils.HTTPClient do
+  @moduledoc false
   use GenServer
 
   @progress_steps 50
-  @redirect_status_codes [301, 302, 303, 307, 308]
 
+  # See https://www.erlang.org/doc/man/httpc.html#request-5
+  @type http_opts ::
+          {:timeout, timeout()}
+          | {:connect_timeout, timeout()}
+          | {:ssl, [:ssl.tls_option()]}
+          | {:essl, [:ssl.tls_option()]}
+          | {:autoredirect, boolean()}
+          | {:proxy_auth, {charlist(), charlist()}}
+          | {:relaxed, boolean()}
+  @type opts :: [
+          progress?: boolean(),
+          headers: [{String.t() | charlist(), String.t() | charlist()}],
+          http_opts: http_opts()
+        ]
+
+  @spec start_link() :: GenServer.on_start()
   def start_link() do
     {:ok, _} = Application.ensure_all_started(:nerves)
-    start_httpc()
+    _ = start_httpc()
     GenServer.start_link(__MODULE__, [])
   end
 
+  @spec stop(GenServer.server()) :: :ok
   def stop(pid) do
     GenServer.stop(pid)
   end
 
+  @spec get(GenServer.server(), URI.t() | String.t(), opts()) ::
+          {:ok, String.t()} | {:error, String.t() | :too_many_redirects | atom()}
   def get(_, _, _ \\ [])
 
   def get(_pid, %URI{host: nil, path: path}, _opts) do
@@ -23,17 +42,13 @@ defmodule Nerves.Utils.HTTPClient do
   end
 
   def get(pid, %URI{} = uri, opts) do
-    url =
-      uri
-      |> URI.to_string()
-      |> URI.encode()
-      |> String.replace("+", "%2B")
-
+    url = URI.to_string(uri)
     get(pid, url, opts)
   end
 
   def get(pid, url, opts), do: GenServer.call(pid, {:get, url, opts}, :infinity)
 
+  @impl GenServer
   def init([]) do
     {:ok,
      %{
@@ -45,10 +60,11 @@ defmodule Nerves.Utils.HTTPClient do
        caller: nil,
        number_of_redirects: 0,
        progress?: true,
-       opts: []
+       get_opts: []
      }}
   end
 
+  @impl GenServer
   def handle_call({:get, _url, _opts}, _from, %{number_of_redirects: n} = s) when n > 5 do
     GenServer.reply(s.caller, {:error, :too_many_redirects})
     {:noreply, %{s | url: nil, number_of_redirects: 0, caller: nil}}
@@ -57,25 +73,44 @@ defmodule Nerves.Utils.HTTPClient do
   def handle_call({:get, url, opts}, from, s) do
     progress? = Keyword.get(opts, :progress?, true)
 
-    headers =
-      Keyword.get(opts, :headers, [])
-      |> Enum.map(fn {k, v} ->
-        {to_charlist(k), to_charlist(v)}
-      end)
+    user_headers = Keyword.get(opts, :headers, []) |> Enum.map(&tuple_to_charlist/1)
 
     headers = [
-      {'User-Agent', 'Nerves HTTP Client #{Nerves.version()}'},
-      {'Content-Type', 'application/octet-stream'} | headers
+      {~c"User-Agent", ~c"Nerves/#{Nerves.version()}"},
+      {~c"Content-Type", ~c"application/octet-stream"} | user_headers
     ]
 
     http_opts =
-      [timeout: :infinity, autoredirect: false]
+      [
+        timeout: :infinity,
+        autoredirect: false,
+        ssl: [
+          verify: :verify_peer,
+          cacertfile: CAStore.file_path(),
+          depth: 3,
+          customize_hostname_check: [
+            {:match_fun, :public_key.pkix_verify_hostname_match_fun(:https)}
+          ]
+        ]
+      ]
       |> Keyword.merge(Nerves.Utils.Proxy.config(url))
       |> Keyword.merge(Keyword.get(opts, :http_opts, []))
 
-    opts = [stream: :self, receiver: self(), sync: false]
-    :httpc.request(:get, {String.to_charlist(url), headers}, http_opts, opts, :nerves)
-    {:noreply, %{s | url: url, caller: from, opts: opts, progress?: progress?}}
+    {:ok, _} =
+      :httpc.request(
+        :get,
+        {String.to_charlist(url), headers},
+        http_opts,
+        [stream: :self, receiver: self(), sync: false],
+        :nerves
+      )
+
+    {:noreply, %{s | url: url, caller: from, get_opts: opts, progress?: progress?}}
+  end
+
+  @impl GenServer
+  def handle_info({:http, {_ref, {:error, {:failed_connect, _}} = err}}, s) do
+    GenServer.reply(s.caller, err)
   end
 
   def handle_info({:http, {_ref, {:error, {:failed_connect, _}} = err}}, s) do
@@ -84,7 +119,7 @@ defmodule Nerves.Utils.HTTPClient do
 
   def handle_info({:http, {_, :stream_start, headers}}, s) do
     content_length =
-      case Enum.find(headers, fn {key, _} -> key == 'content-length' end) do
+      case Enum.find(headers, fn {key, _} -> key == ~c"content-length" end) do
         nil ->
           0
 
@@ -98,7 +133,7 @@ defmodule Nerves.Utils.HTTPClient do
       end
 
     filename =
-      case Enum.find(headers, fn {key, _} -> key == 'content-disposition' end) do
+      case Enum.find(headers, fn {key, _} -> key == ~c"content-disposition" end) do
         nil ->
           Path.basename(s.url)
 
@@ -135,10 +170,12 @@ defmodule Nerves.Utils.HTTPClient do
   end
 
   def handle_info({:http, {_ref, {{_, status_code, reason}, headers, _body}}}, s)
-      when status_code in @redirect_status_codes do
-    case Enum.find(headers, fn {key, _} -> key == 'location' end) do
-      {'location', next_location} ->
-        handle_call({:get, List.to_string(next_location), headers: headers}, s.caller, %{
+      when div(status_code, 100) == 3 do
+    case Enum.find(headers, fn {key, _} -> key == ~c"location" end) do
+      {~c"location", next_location} ->
+        next_get_opts = Keyword.drop(s.get_opts, [:headers])
+
+        handle_call({:get, List.to_string(next_location), next_get_opts}, s.caller, %{
           s
           | buffer: "",
             buffer_size: 0,
@@ -155,7 +192,7 @@ defmodule Nerves.Utils.HTTPClient do
     {:noreply, s}
   end
 
-  def put_progress(size, max) do
+  defp put_progress(size, max) do
     fraction = size / max
     completed = trunc(fraction * @progress_steps)
     percent = trunc(fraction * 100)
@@ -163,9 +200,7 @@ defmodule Nerves.Utils.HTTPClient do
 
     IO.write(
       :stderr,
-      "\r|#{String.duplicate("=", completed)}#{String.duplicate(" ", unfilled)}| #{percent}% (#{
-        bytes_to_mb(size)
-      } / #{bytes_to_mb(max)}) MB"
+      "\r|#{String.duplicate("=", completed)}#{String.duplicate(" ", unfilled)}| #{percent}% (#{bytes_to_mb(size)} / #{bytes_to_mb(max)}) MB"
     )
   end
 
@@ -193,5 +228,9 @@ defmodule Nerves.Utils.HTTPClient do
 
   defp progress?(%{progress?: progress?}) do
     System.get_env("NERVES_LOG_DISABLE_PROGRESS_BAR") == nil and progress?
+  end
+
+  defp tuple_to_charlist({k, v}) do
+    {to_charlist(k), to_charlist(v)}
   end
 end

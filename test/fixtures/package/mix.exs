@@ -1,22 +1,21 @@
-defmodule Package.Fixture.Mixfile do
+defmodule Package.Fixture.MixProject do
   use Mix.Project
 
   @version Path.join(__DIR__, "VERSION")
            |> File.read!()
            |> String.trim()
 
-  def project do
+  def project() do
     [
       app: :package,
       version: @version,
       compilers: Mix.compilers() ++ [:nerves_package],
       nerves_package: nerves_package(),
-      deps: deps(),
-      aliases: Nerves.Bootstrap.add_aliases([])
+      deps: deps()
     ]
   end
 
-  defp nerves_package do
+  defp nerves_package() do
     [
       type: :package,
       platform: Nerves.System.BR,
@@ -27,11 +26,11 @@ defmodule Package.Fixture.Mixfile do
     ]
   end
 
-  defp deps do
+  defp deps() do
     [{:system_platform, path: "../system_platform"}]
   end
 
-  defp package_files do
+  defp package_files() do
     [
       "nerves_defconfig",
       "mix.exs",

@@ -1,11 +1,11 @@
-defmodule SystemPlatform.Mixfile do
+defmodule SystemPlatform.MixProject do
   use Mix.Project
 
   @version Path.join(__DIR__, "VERSION")
            |> File.read!()
            |> String.trim()
 
-  def project do
+  def project() do
     [
       app: :system_platform,
       version: @version,
@@ -14,20 +14,20 @@ defmodule SystemPlatform.Mixfile do
     ]
   end
 
-  defp nerves_package do
+  defp nerves_package() do
     [
       type: :system_platform,
       checksum: package_files()
     ]
   end
 
-  defp deps do
+  defp deps() do
     [
-      # {:nerves, path: System.get_env("NERVES_PATH") || "../../../"}
+      {:nerves, path: System.get_env("NERVES_PATH") || "../../../", runtime: false}
     ]
   end
 
-  defp package_files do
+  defp package_files() do
     [
       "mix.exs",
       "env.exs",

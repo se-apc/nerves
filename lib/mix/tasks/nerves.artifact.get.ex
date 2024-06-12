@@ -1,51 +1,40 @@
 defmodule Mix.Tasks.Nerves.Artifact.Get do
+  @moduledoc false
   use Mix.Task
 
   alias Nerves.Artifact
   alias Nerves.Artifact.{Cache, Resolver}
 
-  @moduledoc """
-    Fetch the artifacts from one of the artifact_sites
-    This task is typically called as part of the
-    Nerves.Bootstrap aliases during `mix deps.get`
-
-    You can also call into this task by calling
-    `mix nerves.deps.get`
-
-    # Example
-
-      $ mix nerves.artifact.get
-  """
-
-  @shortdoc "Nerves get artifacts"
-
-  def run(opts) do
-    Mix.shell().info("Resolving Nerves artifacts...")
+  @impl Mix.Task
+  def run(_opts) do
+    Mix.shell().info("Checking for prebuilt Nerves artifacts...")
 
     Nerves.Env.packages()
-    |> Enum.each(&get(&1.app, opts))
+    |> Enum.each(&get(&1.app))
   end
 
-  def get(app, _opts) do
+  @doc false
+  @spec get(atom()) :: :ok
+  def get(app) do
     case Nerves.Env.package(app) do
       %Nerves.Package{type: type} when type in [:toolchain_platform, :system_platform] ->
-        :noop
+        :ok
 
       %Nerves.Package{} = pkg ->
         # Check to see if the package path is set in the environment
-        if Nerves.Artifact.env_var?(pkg) do
-          path = System.get_env(Nerves.Artifact.env_var(pkg))
-          Nerves.Utils.Shell.success("  Env #{app}")
-          Nerves.Utils.Shell.success("      #{path}")
-        else
-          # Check the cache
-          case Artifact.Cache.get(pkg) do
-            nil ->
-              get_artifact(pkg)
+        cond do
+          Nerves.Artifact.env_var?(pkg) ->
+            path = System.get_env(Nerves.Artifact.env_var(pkg))
+            Nerves.Utils.Shell.success("  Env #{app}")
+            Nerves.Utils.Shell.success("      #{path}")
 
-            _cache_path ->
-              Nerves.Utils.Shell.success("  Cached #{app}")
-          end
+          # Check the cache
+          cache_path = Artifact.Cache.get(pkg) ->
+            Nerves.Utils.Shell.success("  Found #{app} in cache")
+            Nerves.Utils.Shell.info("    #{cache_path}")
+
+          true ->
+            get_artifact(pkg)
         end
 
       _ ->
@@ -55,7 +44,7 @@ defmodule Mix.Tasks.Nerves.Artifact.Get do
 
   defp get_artifact(pkg) do
     archive = Artifact.download_path(pkg)
-    Nerves.Utils.Shell.success("  Resolving #{pkg.app}")
+    Nerves.Utils.Shell.success("  Checking #{pkg.app}...")
 
     with true <- File.exists?(archive),
          :ok <- Nerves.Utils.File.validate(archive) do
@@ -63,7 +52,7 @@ defmodule Mix.Tasks.Nerves.Artifact.Get do
       put_cache(pkg, archive)
     else
       _error ->
-        File.rm(archive)
+        _ = File.rm(archive)
         resolvers = Artifact.expand_sites(pkg)
         get_artifact(pkg, resolvers)
     end
@@ -77,7 +66,7 @@ defmodule Mix.Tasks.Nerves.Artifact.Get do
         put_cache(pkg, archive)
 
       {:error, reason} ->
-        Nerves.Utils.Shell.error("  => #{reason}")
+        Nerves.Utils.Shell.error("  => Prebuilt #{pkg.app} not found (#{reason})")
     end
   end
 
@@ -85,12 +74,10 @@ defmodule Mix.Tasks.Nerves.Artifact.Get do
     checksum = Artifact.checksum(pkg)
 
     if checksum == Nerves.Artifact.checksum(pkg) do
-      Cache.put(pkg, archive)
+      _ = Cache.put(pkg, archive)
       Nerves.Utils.Shell.success("  => Success")
-      :ok
     else
       Nerves.Utils.Shell.error("  => Error: Checksums do not match")
-      :error
     end
   end
 end

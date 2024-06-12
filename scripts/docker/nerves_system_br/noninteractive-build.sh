@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # noninteractive-build.sh \
 #  nerves_system_ev3-0.7.0.armv5tejl_unknown_linux_musleabi \
 #  /nerves/env/platform \
@@ -31,7 +31,7 @@ rm -rf $NERVES_PKG_PLATFORM/buildroot*
 $NERVES_PKG_PLATFORM/create-build.sh $NERVES_PKG_DEFCONFIG $NERVES_PKG_OUTPUT
 
 cd $NERVES_PKG_OUTPUT
-make
+make source all
 
 make system NERVES_ARTIFACT_NAME=$1
 # Uncomment when switching to Artifact Type

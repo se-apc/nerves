@@ -1,14 +1,14 @@
 defmodule Nerves.Artifact.BuildRunners.Docker.Volume do
+  @moduledoc false
+  import Nerves.Artifact.BuildRunners.Docker.Utils
   alias Nerves.Artifact
-  alias Nerves.Artifact.BuildRunners.Docker
-  import Docker.Utils
 
+  @spec name(Nerves.Package.t()) :: String.t()
   def name(pkg) do
-    if id = id(pkg) do
-      "#{pkg.app}-#{id}"
-    end
+    "#{pkg.app}-#{id(pkg)}"
   end
 
+  @spec id(Nerves.Package.t()) :: String.t()
   def id(pkg) do
     id_file = id_file(pkg)
 
@@ -20,12 +20,12 @@ defmodule Nerves.Artifact.BuildRunners.Docker.Volume do
     end
   end
 
-  def id_file(pkg) do
+  defp id_file(pkg) do
     Artifact.build_path(pkg)
     |> Path.join(".docker_id")
   end
 
-  def create_id(pkg) do
+  defp create_id(pkg) do
     id_file = id_file(pkg)
     id = Nerves.Utils.random_alpha_num(16)
 
@@ -35,6 +35,7 @@ defmodule Nerves.Artifact.BuildRunners.Docker.Volume do
     File.write!(id_file, id)
   end
 
+  @spec delete(String.t()) :: :ok
   def delete(volume_name) do
     shell_info("Deleting build volume #{volume_name}")
     args = ["volume", "rm", volume_name]
@@ -50,11 +51,12 @@ defmodule Nerves.Artifact.BuildRunners.Docker.Volume do
     end
   end
 
+  @spec exists?(String.t()) :: boolean()
   def exists?(volume_name) do
     cmd = "docker"
     args = ["volume", "ls", "-f", "name=#{volume_name}", "-q"]
 
-    case System.cmd(cmd, args, stderr_to_stdout: true) do
+    case Nerves.Port.cmd(cmd, args, stderr_to_stdout: true) do
       {<<^volume_name, _tail::binary>>, 0} ->
         true
 
@@ -66,11 +68,12 @@ defmodule Nerves.Artifact.BuildRunners.Docker.Volume do
     end
   end
 
+  @spec create(String.t()) :: :noop
   def create(volume_name) do
     cmd = "docker"
     args = ["volume", "create", "--name", volume_name]
 
-    case System.cmd(cmd, args) do
+    case Nerves.Port.cmd(cmd, args) do
       {_, 0} -> :noop
       _ -> Mix.raise("Nerves Docker build_runner could not create docker volume #{volume_name}")
     end
